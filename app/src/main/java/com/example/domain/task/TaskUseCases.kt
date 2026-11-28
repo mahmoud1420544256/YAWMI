@@ -2,6 +2,7 @@ package com.example.domain.task
 
 import com.example.core.time.LocalClock
 import com.example.data.local.entity.TaskEntity
+import com.example.data.local.entity.TaskRecurrenceEntity
 import com.example.data.local.entity.TaskStatus
 import com.example.domain.repository.CategoryRepository
 import com.example.domain.repository.TaskRepository
@@ -58,6 +59,9 @@ class TaskUseCases(
     taskId: String,
     targetStatus: TaskStatus,
   ): TaskDomainResult<TaskEntity> {
+    if (targetStatus == TaskStatus.COMPLETED) {
+      return completeTask(taskId)
+    }
     val existing =
       taskRepository.getById(taskId)
         ?: return TaskDomainResult.Failure(listOf(TaskValidationError.TaskNotFound(taskId)))
@@ -84,8 +88,22 @@ class TaskUseCases(
     return TaskDomainResult.Success(updated)
   }
 
+  suspend fun completeTaskWithNextOccurrence(
+    taskId: String,
+  ): TaskDomainResult<TaskCompletionResult> {
+    val now = localClock.currentEpochMs()
+    return taskRepository.completeTaskWithRecurrence(
+      taskId = taskId,
+      nowEpochMs = now,
+      idGenerator = idGenerator,
+    )
+  }
+
   suspend fun completeTask(taskId: String): TaskDomainResult<TaskEntity> =
-    transitionStatus(taskId = taskId, targetStatus = TaskStatus.COMPLETED)
+    when (val result = completeTaskWithNextOccurrence(taskId)) {
+      is TaskDomainResult.Failure -> result
+      is TaskDomainResult.Success -> TaskDomainResult.Success(result.value.completedTask)
+    }
 
   suspend fun startTask(taskId: String): TaskDomainResult<TaskEntity> =
     transitionStatus(taskId = taskId, targetStatus = TaskStatus.IN_PROGRESS)
@@ -140,6 +158,67 @@ class TaskUseCases(
 
     taskRepository.update(updated)
     return TaskDomainResult.Success(updated)
+  }
+
+  suspend fun saveTaskRecurrence(
+    taskId: String,
+    input: TaskRecurrenceInput,
+  ): TaskDomainResult<TaskRecurrenceEntity> {
+    val existing =
+      taskRepository.getById(taskId)
+        ?: return TaskDomainResult.Failure(listOf(TaskValidationError.TaskNotFound(taskId)))
+
+    if (!TaskReminderRules.isTaskActive(existing.status)) {
+      return TaskDomainResult.Failure(
+        listOf(
+          TaskValidationError.InvalidStatusTransition(
+            from = existing.status,
+            to = existing.status,
+          )
+        )
+      )
+    }
+
+    val now = localClock.currentEpochMs()
+    val existingRecurrence = taskRepository.getTaskRecurrence(taskId)
+    val built =
+      TaskRecurrenceRules.buildRecurrenceEntity(
+        taskId = taskId,
+        taskScheduledDate = existing.scheduledDate,
+        input = input,
+        nowEpochMs = now,
+        idGenerator = { existingRecurrence?.id ?: idGenerator() },
+      )
+    val entity =
+      when (built) {
+        is TaskDomainResult.Failure -> return built
+        is TaskDomainResult.Success -> built.value
+      }
+
+    taskRepository.upsertTaskRecurrence(entity)
+    return TaskDomainResult.Success(entity)
+  }
+
+  suspend fun getTaskRecurrence(taskId: String): TaskRecurrenceEntity? =
+    taskRepository.getTaskRecurrence(taskId)
+
+  suspend fun removeTaskRecurrence(taskId: String): TaskDomainResult<Boolean> {
+    val existing =
+      taskRepository.getById(taskId)
+        ?: return TaskDomainResult.Failure(listOf(TaskValidationError.TaskNotFound(taskId)))
+
+    if (!TaskReminderRules.isTaskActive(existing.status)) {
+      return TaskDomainResult.Failure(
+        listOf(
+          TaskValidationError.InvalidStatusTransition(
+            from = existing.status,
+            to = existing.status,
+          )
+        )
+      )
+    }
+
+    return TaskDomainResult.Success(taskRepository.deleteTaskRecurrence(taskId) > 0)
   }
 
   suspend fun deleteTask(taskId: String): Boolean = taskRepository.deleteById(taskId) > 0

@@ -27,10 +27,17 @@ internal class RoomReminderSyncRepository(
   private val outboxDao: AlarmSyncOutboxDao,
   private val metadataDao: AppMetadataDao,
   private val outboxCoordinator: ReminderOutboxCoordinator,
+  private val onOutboxCommitted: suspend () -> Unit = {},
 ) : ReminderSyncRepository {
 
   override fun observeTaskReminders(taskId: String): Flow<List<TaskReminderEntity>> =
     reminderDao.observeTaskReminders(taskId)
+
+  override suspend fun getTaskReminders(taskId: String): List<TaskReminderEntity> =
+    reminderDao.getTaskRemindersByTaskId(taskId)
+
+  override suspend fun getTaskReminderById(reminderId: String): TaskReminderEntity? =
+    reminderDao.getTaskReminderById(reminderId)
 
   override fun observeHabitReminders(habitId: String): Flow<List<HabitReminderEntity>> =
     reminderDao.observeHabitReminders(habitId)
@@ -45,30 +52,35 @@ internal class RoomReminderSyncRepository(
     triggerTime: String,
     offsetMinutes: Int,
     nowEpochMs: Long,
-  ): TaskReminderEntity = database.withTransaction {
-    val requestCode = outboxCoordinator.allocateNextRequestCodeLocked()
+  ): TaskReminderEntity {
     val entity =
-      TaskReminderEntity(
-        id = reminderId,
-        taskId = taskId,
-        triggerDate = triggerDate,
-        triggerTime = triggerTime,
-        offsetMinutes = offsetMinutes,
-        requestCode = requestCode,
-        scheduleRevision = 1L,
-        isEnabled = true,
-        scheduleState = ReminderScheduleState.PENDING_SYNC,
-        updatedAtEpochMs = nowEpochMs,
-      )
-    reminderDao.insertTaskReminder(entity)
-    outboxCoordinator.stageScheduleAlarmLocked(
-      ownerType = ReminderOwnerType.TASK,
-      reminderId = reminderId,
-      requestCode = requestCode,
-      targetScheduleRevision = entity.scheduleRevision,
-      nowEpochMs = nowEpochMs,
-    )
-    entity
+      database.withTransaction {
+        val requestCode = outboxCoordinator.allocateNextRequestCodeLocked()
+        val created =
+          TaskReminderEntity(
+            id = reminderId,
+            taskId = taskId,
+            triggerDate = triggerDate,
+            triggerTime = triggerTime,
+            offsetMinutes = offsetMinutes,
+            requestCode = requestCode,
+            scheduleRevision = 1L,
+            isEnabled = true,
+            scheduleState = ReminderScheduleState.PENDING_SYNC,
+            updatedAtEpochMs = nowEpochMs,
+          )
+        reminderDao.insertTaskReminder(created)
+        outboxCoordinator.stageScheduleAlarmLocked(
+          ownerType = ReminderOwnerType.TASK,
+          reminderId = reminderId,
+          requestCode = requestCode,
+          targetScheduleRevision = created.scheduleRevision,
+          nowEpochMs = nowEpochMs,
+        )
+        created
+      }
+    onOutboxCommitted()
+    return entity
   }
 
   override suspend fun createHabitReminder(
@@ -78,31 +90,32 @@ internal class RoomReminderSyncRepository(
     triggerTime: String,
     offsetMinutes: Int,
     nowEpochMs: Long,
-  ): HabitReminderEntity = database.withTransaction {
-    val requestCode = outboxCoordinator.allocateNextRequestCodeLocked()
-    val entity =
-      HabitReminderEntity(
-        id = reminderId,
-        habitId = habitId,
-        triggerDate = triggerDate,
-        triggerTime = triggerTime,
-        offsetMinutes = offsetMinutes,
+  ): HabitReminderEntity =
+    database.withTransaction {
+      val requestCode = outboxCoordinator.allocateNextRequestCodeLocked()
+      val created =
+        HabitReminderEntity(
+          id = reminderId,
+          habitId = habitId,
+          triggerDate = triggerDate,
+          triggerTime = triggerTime,
+          offsetMinutes = offsetMinutes,
+          requestCode = requestCode,
+          scheduleRevision = 1L,
+          isEnabled = true,
+          scheduleState = ReminderScheduleState.PENDING_SYNC,
+          updatedAtEpochMs = nowEpochMs,
+        )
+      reminderDao.insertHabitReminder(created)
+      outboxCoordinator.stageScheduleAlarmLocked(
+        ownerType = ReminderOwnerType.HABIT,
+        reminderId = reminderId,
         requestCode = requestCode,
-        scheduleRevision = 1L,
-        isEnabled = true,
-        scheduleState = ReminderScheduleState.PENDING_SYNC,
-        updatedAtEpochMs = nowEpochMs,
+        targetScheduleRevision = created.scheduleRevision,
+        nowEpochMs = nowEpochMs,
       )
-    reminderDao.insertHabitReminder(entity)
-    outboxCoordinator.stageScheduleAlarmLocked(
-      ownerType = ReminderOwnerType.HABIT,
-      reminderId = reminderId,
-      requestCode = requestCode,
-      targetScheduleRevision = entity.scheduleRevision,
-      nowEpochMs = nowEpochMs,
-    )
-    entity
-  }
+      created
+    }
 
   override suspend fun createGoalReminder(
     reminderId: String,
@@ -111,31 +124,32 @@ internal class RoomReminderSyncRepository(
     triggerTime: String,
     offsetMinutes: Int,
     nowEpochMs: Long,
-  ): GoalReminderEntity = database.withTransaction {
-    val requestCode = outboxCoordinator.allocateNextRequestCodeLocked()
-    val entity =
-      GoalReminderEntity(
-        id = reminderId,
-        goalId = goalId,
-        triggerDate = triggerDate,
-        triggerTime = triggerTime,
-        offsetMinutes = offsetMinutes,
+  ): GoalReminderEntity =
+    database.withTransaction {
+      val requestCode = outboxCoordinator.allocateNextRequestCodeLocked()
+      val created =
+        GoalReminderEntity(
+          id = reminderId,
+          goalId = goalId,
+          triggerDate = triggerDate,
+          triggerTime = triggerTime,
+          offsetMinutes = offsetMinutes,
+          requestCode = requestCode,
+          scheduleRevision = 1L,
+          isEnabled = true,
+          scheduleState = ReminderScheduleState.PENDING_SYNC,
+          updatedAtEpochMs = nowEpochMs,
+        )
+      reminderDao.insertGoalReminder(created)
+      outboxCoordinator.stageScheduleAlarmLocked(
+        ownerType = ReminderOwnerType.GOAL,
+        reminderId = reminderId,
         requestCode = requestCode,
-        scheduleRevision = 1L,
-        isEnabled = true,
-        scheduleState = ReminderScheduleState.PENDING_SYNC,
-        updatedAtEpochMs = nowEpochMs,
+        targetScheduleRevision = created.scheduleRevision,
+        nowEpochMs = nowEpochMs,
       )
-    reminderDao.insertGoalReminder(entity)
-    outboxCoordinator.stageScheduleAlarmLocked(
-      ownerType = ReminderOwnerType.GOAL,
-      reminderId = reminderId,
-      requestCode = requestCode,
-      targetScheduleRevision = entity.scheduleRevision,
-      nowEpochMs = nowEpochMs,
-    )
-    entity
-  }
+      created
+    }
 
   override suspend fun updateTaskReminderSchedule(
     reminderId: String,
@@ -144,43 +158,92 @@ internal class RoomReminderSyncRepository(
     offsetMinutes: Int,
     isEnabled: Boolean,
     nowEpochMs: Long,
-  ): TaskReminderEntity = database.withTransaction {
-    val existing =
-      requireNotNull(reminderDao.getTaskReminderById(reminderId)) {
-        "TaskReminderEntity not found: $reminderId"
-      }
-    val nextRevision = existing.scheduleRevision + 1L
+  ): TaskReminderEntity {
     val updated =
-      existing.copy(
-        triggerDate = triggerDate,
-        triggerTime = triggerTime,
-        offsetMinutes = offsetMinutes,
-        isEnabled = isEnabled,
-        scheduleRevision = nextRevision,
-        scheduleState =
-          if (isEnabled) ReminderScheduleState.PENDING_SYNC else ReminderScheduleState.PAUSED,
-        updatedAtEpochMs = nowEpochMs,
-      )
-    reminderDao.updateTaskReminder(updated)
-    deliveryDao.markPendingTaskDeliveriesStale(reminderId, nowEpochMs)
-    if (isEnabled) {
-      outboxCoordinator.stageScheduleAlarmLocked(
-        ownerType = ReminderOwnerType.TASK,
-        reminderId = reminderId,
-        requestCode = updated.requestCode,
-        targetScheduleRevision = nextRevision,
-        nowEpochMs = nowEpochMs,
-      )
-    } else {
-      outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-        ownerType = ReminderOwnerType.TASK,
-        reminderId = reminderId,
-        requestCode = updated.requestCode,
-        targetScheduleRevision = nextRevision,
-        nowEpochMs = nowEpochMs,
-      )
-    }
-    updated
+      database.withTransaction {
+        val existing =
+          requireNotNull(reminderDao.getTaskReminderById(reminderId)) {
+            "TaskReminderEntity not found: $reminderId"
+          }
+        val nextRevision = existing.scheduleRevision + 1L
+        val next =
+          existing.copy(
+            triggerDate = triggerDate,
+            triggerTime = triggerTime,
+            offsetMinutes = offsetMinutes,
+            isEnabled = isEnabled,
+            scheduleRevision = nextRevision,
+            scheduleState =
+              if (isEnabled) ReminderScheduleState.PENDING_SYNC else ReminderScheduleState.PAUSED,
+            updatedAtEpochMs = nowEpochMs,
+          )
+        reminderDao.updateTaskReminder(next)
+        deliveryDao.markPendingTaskDeliveriesStale(reminderId, nowEpochMs)
+        if (isEnabled) {
+          outboxCoordinator.stageScheduleAlarmLocked(
+            ownerType = ReminderOwnerType.TASK,
+            reminderId = reminderId,
+            requestCode = next.requestCode,
+            targetScheduleRevision = nextRevision,
+            nowEpochMs = nowEpochMs,
+          )
+        } else {
+          outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+            ownerType = ReminderOwnerType.TASK,
+            reminderId = reminderId,
+            requestCode = next.requestCode,
+            targetScheduleRevision = nextRevision,
+            nowEpochMs = nowEpochMs,
+          )
+        }
+        next
+      }
+    onOutboxCommitted()
+    return updated
+  }
+
+  override suspend fun snoozeTaskReminder(
+    reminderId: String,
+    triggerDate: String,
+    triggerTime: String,
+    nowEpochMs: Long,
+  ): TaskReminderEntity {
+    val updated =
+      database.withTransaction {
+        val existing =
+          requireNotNull(reminderDao.getTaskReminderById(reminderId)) {
+            "TaskReminderEntity not found: $reminderId"
+          }
+        val nextRevision = existing.scheduleRevision + 1L
+        val next =
+          existing.copy(
+            triggerDate = triggerDate,
+            triggerTime = triggerTime,
+            isEnabled = true,
+            scheduleRevision = nextRevision,
+            scheduleState = ReminderScheduleState.PENDING_SYNC,
+            updatedAtEpochMs = nowEpochMs,
+          )
+        reminderDao.updateTaskReminder(next)
+        deliveryDao.markPendingTaskDeliveriesStale(reminderId, nowEpochMs)
+        outboxCoordinator.stageCancelNotificationLocked(
+          ownerType = ReminderOwnerType.TASK,
+          reminderId = reminderId,
+          requestCode = next.requestCode,
+          targetScheduleRevision = nextRevision,
+          nowEpochMs = nowEpochMs,
+        )
+        outboxCoordinator.stageScheduleAlarmLocked(
+          ownerType = ReminderOwnerType.TASK,
+          reminderId = reminderId,
+          requestCode = next.requestCode,
+          targetScheduleRevision = nextRevision,
+          nowEpochMs = nowEpochMs,
+        )
+        next
+      }
+    onOutboxCommitted()
+    return updated
   }
 
   override suspend fun updateHabitReminderSchedule(
@@ -190,44 +253,45 @@ internal class RoomReminderSyncRepository(
     offsetMinutes: Int,
     isEnabled: Boolean,
     nowEpochMs: Long,
-  ): HabitReminderEntity = database.withTransaction {
-    val existing =
-      requireNotNull(reminderDao.getHabitReminderById(reminderId)) {
-        "HabitReminderEntity not found: $reminderId"
+  ): HabitReminderEntity =
+    database.withTransaction {
+      val existing =
+        requireNotNull(reminderDao.getHabitReminderById(reminderId)) {
+          "HabitReminderEntity not found: $reminderId"
+        }
+      val nextRevision = existing.scheduleRevision + 1L
+      val next =
+        existing.copy(
+          triggerDate = triggerDate,
+          triggerTime = triggerTime,
+          offsetMinutes = offsetMinutes,
+          isEnabled = isEnabled,
+          scheduleRevision = nextRevision,
+          scheduleState =
+            if (isEnabled) ReminderScheduleState.PENDING_SYNC else ReminderScheduleState.PAUSED,
+          updatedAtEpochMs = nowEpochMs,
+        )
+      reminderDao.updateHabitReminder(next)
+      deliveryDao.markPendingHabitDeliveriesStale(reminderId, nowEpochMs)
+      if (isEnabled) {
+        outboxCoordinator.stageScheduleAlarmLocked(
+          ownerType = ReminderOwnerType.HABIT,
+          reminderId = reminderId,
+          requestCode = next.requestCode,
+          targetScheduleRevision = nextRevision,
+          nowEpochMs = nowEpochMs,
+        )
+      } else {
+        outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+          ownerType = ReminderOwnerType.HABIT,
+          reminderId = reminderId,
+          requestCode = next.requestCode,
+          targetScheduleRevision = nextRevision,
+          nowEpochMs = nowEpochMs,
+        )
       }
-    val nextRevision = existing.scheduleRevision + 1L
-    val updated =
-      existing.copy(
-        triggerDate = triggerDate,
-        triggerTime = triggerTime,
-        offsetMinutes = offsetMinutes,
-        isEnabled = isEnabled,
-        scheduleRevision = nextRevision,
-        scheduleState =
-          if (isEnabled) ReminderScheduleState.PENDING_SYNC else ReminderScheduleState.PAUSED,
-        updatedAtEpochMs = nowEpochMs,
-      )
-    reminderDao.updateHabitReminder(updated)
-    deliveryDao.markPendingHabitDeliveriesStale(reminderId, nowEpochMs)
-    if (isEnabled) {
-      outboxCoordinator.stageScheduleAlarmLocked(
-        ownerType = ReminderOwnerType.HABIT,
-        reminderId = reminderId,
-        requestCode = updated.requestCode,
-        targetScheduleRevision = nextRevision,
-        nowEpochMs = nowEpochMs,
-      )
-    } else {
-      outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-        ownerType = ReminderOwnerType.HABIT,
-        reminderId = reminderId,
-        requestCode = updated.requestCode,
-        targetScheduleRevision = nextRevision,
-        nowEpochMs = nowEpochMs,
-      )
+      next
     }
-    updated
-  }
 
   override suspend fun updateGoalReminderSchedule(
     reminderId: String,
@@ -236,58 +300,65 @@ internal class RoomReminderSyncRepository(
     offsetMinutes: Int,
     isEnabled: Boolean,
     nowEpochMs: Long,
-  ): GoalReminderEntity = database.withTransaction {
-    val existing =
-      requireNotNull(reminderDao.getGoalReminderById(reminderId)) {
-        "GoalReminderEntity not found: $reminderId"
-      }
-    val nextRevision = existing.scheduleRevision + 1L
-    val updated =
-      existing.copy(
-        triggerDate = triggerDate,
-        triggerTime = triggerTime,
-        offsetMinutes = offsetMinutes,
-        isEnabled = isEnabled,
-        scheduleRevision = nextRevision,
-        scheduleState =
-          if (isEnabled) ReminderScheduleState.PENDING_SYNC else ReminderScheduleState.PAUSED,
-        updatedAtEpochMs = nowEpochMs,
-      )
-    reminderDao.updateGoalReminder(updated)
-    deliveryDao.markPendingGoalDeliveriesStale(reminderId, nowEpochMs)
-    if (isEnabled) {
-      outboxCoordinator.stageScheduleAlarmLocked(
-        ownerType = ReminderOwnerType.GOAL,
-        reminderId = reminderId,
-        requestCode = updated.requestCode,
-        targetScheduleRevision = nextRevision,
-        nowEpochMs = nowEpochMs,
-      )
-    } else {
-      outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-        ownerType = ReminderOwnerType.GOAL,
-        reminderId = reminderId,
-        requestCode = updated.requestCode,
-        targetScheduleRevision = nextRevision,
-        nowEpochMs = nowEpochMs,
-      )
-    }
-    updated
-  }
-
-  override suspend fun deleteTaskReminder(reminderId: String, nowEpochMs: Long): Boolean =
+  ): GoalReminderEntity =
     database.withTransaction {
-      val existing = reminderDao.getTaskReminderById(reminderId) ?: return@withTransaction false
-      deliveryDao.markPendingTaskDeliveriesStale(reminderId, nowEpochMs)
-      outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-        ownerType = ReminderOwnerType.TASK,
-        reminderId = reminderId,
-        requestCode = existing.requestCode,
-        targetScheduleRevision = existing.scheduleRevision + 1L,
-        nowEpochMs = nowEpochMs,
-      )
-      reminderDao.deleteTaskReminderById(reminderId) > 0
+      val existing =
+        requireNotNull(reminderDao.getGoalReminderById(reminderId)) {
+          "GoalReminderEntity not found: $reminderId"
+        }
+      val nextRevision = existing.scheduleRevision + 1L
+      val next =
+        existing.copy(
+          triggerDate = triggerDate,
+          triggerTime = triggerTime,
+          offsetMinutes = offsetMinutes,
+          isEnabled = isEnabled,
+          scheduleRevision = nextRevision,
+          scheduleState =
+            if (isEnabled) ReminderScheduleState.PENDING_SYNC else ReminderScheduleState.PAUSED,
+          updatedAtEpochMs = nowEpochMs,
+        )
+      reminderDao.updateGoalReminder(next)
+      deliveryDao.markPendingGoalDeliveriesStale(reminderId, nowEpochMs)
+      if (isEnabled) {
+        outboxCoordinator.stageScheduleAlarmLocked(
+          ownerType = ReminderOwnerType.GOAL,
+          reminderId = reminderId,
+          requestCode = next.requestCode,
+          targetScheduleRevision = nextRevision,
+          nowEpochMs = nowEpochMs,
+        )
+      } else {
+        outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+          ownerType = ReminderOwnerType.GOAL,
+          reminderId = reminderId,
+          requestCode = next.requestCode,
+          targetScheduleRevision = nextRevision,
+          nowEpochMs = nowEpochMs,
+        )
+      }
+      next
     }
+
+  override suspend fun deleteTaskReminder(reminderId: String, nowEpochMs: Long): Boolean {
+    val deleted =
+      database.withTransaction {
+        val existing = reminderDao.getTaskReminderById(reminderId) ?: return@withTransaction false
+        deliveryDao.markPendingTaskDeliveriesStale(reminderId, nowEpochMs)
+        outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+          ownerType = ReminderOwnerType.TASK,
+          reminderId = reminderId,
+          requestCode = existing.requestCode,
+          targetScheduleRevision = existing.scheduleRevision + 1L,
+          nowEpochMs = nowEpochMs,
+        )
+        reminderDao.deleteTaskReminderById(reminderId) > 0
+      }
+    if (deleted) {
+      onOutboxCommitted()
+    }
+    return deleted
+  }
 
   override suspend fun deleteHabitReminder(reminderId: String, nowEpochMs: Long): Boolean =
     database.withTransaction {

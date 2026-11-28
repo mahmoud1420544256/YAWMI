@@ -1,9 +1,12 @@
 package com.example.core.time
 
 import com.example.core.preferences.AppLanguage
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -23,12 +26,21 @@ interface LocalClock {
   fun greetingPeriod(): GreetingPeriod
 
   fun zoneId(): ZoneId = ZoneId.systemDefault()
+
+  fun millisUntilNextMidnight(): Long {
+    val zone = zoneId()
+    val now = ZonedDateTime.of(currentDate(), currentTime(), zone)
+    val nextMidnight = currentDate().plusDays(1).atStartOfDay(zone)
+    return Duration.between(now, nextMidnight).toMillis().coerceAtLeast(1L)
+  }
 }
 
 class SystemLocalClock : LocalClock {
-  override fun currentDate(): LocalDate = LocalDate.now(ZoneId.systemDefault())
+  override fun currentDate(): LocalDate =
+    Instant.ofEpochMilli(currentEpochMs()).atZone(zoneId()).toLocalDate()
 
-  override fun currentTime(): LocalTime = LocalTime.now(ZoneId.systemDefault())
+  override fun currentTime(): LocalTime =
+    Instant.ofEpochMilli(currentEpochMs()).atZone(zoneId()).toLocalTime()
 
   override fun currentEpochMs(): Long = System.currentTimeMillis()
 
@@ -39,6 +51,13 @@ class SystemLocalClock : LocalClock {
       hour < 17 -> GreetingPeriod.AFTERNOON
       else -> GreetingPeriod.EVENING
     }
+  }
+
+  override fun millisUntilNextMidnight(): Long {
+    val zone = zoneId()
+    val now = Instant.ofEpochMilli(currentEpochMs()).atZone(zone)
+    val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay(zone)
+    return Duration.between(now, nextMidnight).toMillis().coerceAtLeast(1L)
   }
 }
 

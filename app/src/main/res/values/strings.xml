@@ -102,6 +102,11 @@
     <string name="task_error_category_not_found">Selected category no longer exists.</string>
     <string name="task_error_not_found">Task could not be found.</string>
     <string name="task_error_invalid_transition">This status change is not allowed.</string>
+    <string name="task_error_recurrence_interval">Recurrence interval must be at least 1.</string>
+    <string name="task_error_recurrence_end_date">Enter a valid recurrence end date (YYYY-MM-DD).</string>
+    <string name="task_error_recurrence_end_before_start">Recurrence end date cannot be earlier than the task date.</string>
+    <string name="task_error_recurrence_requires_date">A recurring task requires a scheduled date.</string>
+    <string name="task_error_recurrence_requires_days">Select at least one day of the week for custom recurrence.</string>
 
     <!-- Sub-Unit 3B.2: TasksScreen Search, Filters, Sort & Quick Actions -->
     <string name="tasks_search_hint">Search tasks…</string>
@@ -180,4 +185,201 @@
     <string name="task_detail_msg_deleted">Task deleted.</string>
     <string name="task_detail_terminal_hint_completed">This task is completed. Reopen it to postpone or resume work.</string>
     <string name="task_detail_terminal_hint_cancelled">This task is cancelled. Reopen it if you want to work on it again.</string>
+
+    <!-- Unit 4B: Calendar Screen -->
+    <string name="calendar_mode_day">Day</string>
+    <string name="calendar_mode_week">Week</string>
+    <string name="calendar_mode_month">Month</string>
+    <string name="calendar_action_today">Today</string>
+    <string name="calendar_prev_period_desc">Previous period</string>
+    <string name="calendar_next_period_desc">Next period</string>
+    <string name="calendar_month_task_count">%1$d scheduled this month</string>
+    <string name="calendar_agenda_title">Agenda</string>
+    <string name="calendar_agenda_empty_title">No tasks scheduled for this day</string>
+    <string name="calendar_agenda_empty_desc">Tap Add to schedule a task on %1$s.</string>
+    <string name="calendar_day_summary_active">%1$d active</string>
+    <string name="calendar_day_summary_completed">%1$d done</string>
+    <string name="calendar_day_summary_overdue">%1$d overdue</string>
+
+    <!-- Unit 4A.2B: Notification Delivery Engine -->
+    <string name="notification_channel_task_reminders_name">Task Reminders</string>
+    <string name="notification_channel_task_reminders_desc">Reminders for scheduled tasks and snoozed alerts</string>
+    <string name="notification_task_reminder_text">Scheduled for %1$s</string>
+    <string name="notification_task_reminder_with_desc">%1$s · %2$s</string>
+    <string name="notification_action_open">Open details</string>
+    <string name="notification_action_complete">Complete</string>
+    <string name="notification_action_snooze">Snooze 10m</string>
+
+    <!-- Unit 4A.2D: Task Schedule, Next-Day Extension, Reminders & Recurrence -->
+    <string name="task_error_end_equals_start">End time cannot be the same as start time.</string>
+    <string name="task_error_next_day_requires_date">Select a start date before enabling next-day extension.</string>
+    <string name="task_error_next_day_requires_time_window">Select both start and end times before enabling next-day extension.</string>
+    <string name="task_error_next_day_requires_end_before_start">Under next-day extension, end time must be earlier than start time (under 24 hours).</string>
+    <string name="task_reminder_error_task_not_found">Task could not be found.</string>
+    <string name="task_reminder_error_reminder_not_found">Reminder could not be found.</string>
+    <string name="task_reminder_error_task_not_active">Reminders cannot be modified or deleted while this task is completed or cancelled.</string>
+    <string name="task_reminder_error_missing_date">Set a scheduled date before adding a reminder.</string>
+    <string name="task_reminder_error_requires_start_time">Relative reminders require a start time on the task.</string>
+    <string name="task_reminder_error_invalid_offset">Reminder offset must be 0 minutes or greater.</string>
+    <string name="task_reminder_error_invalid_date">Enter a valid reminder date.</string>
+    <string name="task_reminder_error_invalid_time">Enter a valid reminder time.</string>
+    <string name="task_reminder_error_invalid_snooze">Snooze duration must be at least 1 minute.</string>
+    <string name="task_schedule_endpoint_format">%1$s, %2$s</string>
+    <string name="task_schedule_range_format">%1$s → %2$s</string>
+    <string name="task_duration_hours_minutes">%1$dh %2$dm</string>
+    <string name="task_duration_hours_only">%1$dh</string>
+    <string name="task_duration_minutes_only">%1$dm</string>
+    <string name="task_duration_dst_note">Includes daylight saving time adjustment</string>
+    <string name="task_next_day_short">Next day</string>
+    <string name="task_next_day_full">Extend task time to next day</string>
+    <string name="task_next_day_hint">End time falls on the day after the start date.</string>
+    <plurals name="task_duration_hours_plural">
+        <item quantity="one">%1$s hr</item>
+        <item quantity="other">%1$s hrs</item>
+    </plurals>
+    <plurals name="task_duration_minutes_plural">
+        <item quantity="one">%1$s min</item>
+        <item quantity="other">%1$s mins</item>
+    </plurals>
+
+    <!-- Unit 4A.2D Stage 2: Graphical Pickers & Editor Sections -->
+    <string name="action_confirm">Confirm</string>
+    <string name="task_time_picker_start_title">Select start time</string>
+    <string name="task_time_picker_end_title">Select end time</string>
+    <string name="task_time_picker_reminder_title">Select reminder time</string>
+    <string name="task_time_picker_switch_to_input">Switch to numeric input</string>
+    <string name="task_time_picker_switch_to_dial">Switch to clock dial</string>
+    <string name="task_schedule_start_date_label">Start date</string>
+    <string name="task_schedule_end_date_label">End date</string>
+    <string name="task_schedule_start_time_label">Start time</string>
+    <string name="task_schedule_end_time_label">End time</string>
+    <string name="task_schedule_duration_label">Duration</string>
+    <string name="task_schedule_not_set">Not set</string>
+    <string name="task_schedule_pick_time_hint">Tap to choose</string>
+    <string name="task_clear_date_desc">Clear start date</string>
+    <string name="task_clear_start_time_desc">Clear start time</string>
+    <string name="task_clear_end_time_desc">Clear end time</string>
+    <string name="task_recurrence_optional_title">Recurrence (optional)</string>
+    <string name="task_recurrence_none">Off</string>
+    <string name="task_recurrence_daily">Daily</string>
+    <string name="task_recurrence_weekly">Weekly</string>
+    <string name="task_recurrence_monthly">Monthly</string>
+    <string name="task_recurrence_yearly">Yearly</string>
+    <string name="task_recurrence_custom_days">Custom days</string>
+    <string name="task_recurrence_interval_label">Repeat every</string>
+    <string name="task_recurrence_interval_decrease">Decrease interval</string>
+    <string name="task_recurrence_interval_increase">Increase interval</string>
+    <string name="task_recurrence_end_date_optional">Recurrence end date (optional)</string>
+    <string name="task_recurrence_end_date_none">No end date</string>
+    <string name="task_recurrence_requires_date_hint">Choose a start date above before saving recurrence.</string>
+    <string name="task_reminders_optional_title">Reminders (optional)</string>
+    <string name="task_reminders_empty_summary">None</string>
+    <string name="task_reminders_count_summary">%1$s reminder(s)</string>
+    <string name="task_reminder_preset_at_time">At start</string>
+    <string name="task_reminder_preset_10m">10m before</string>
+    <string name="task_reminder_preset_30m">30m before</string>
+    <string name="task_reminder_preset_1h">1h before</string>
+    <string name="task_reminder_add_custom_time">Add custom time</string>
+    <string name="task_reminder_relative_hint">Relative presets require both a start date and start time.</string>
+    <string name="task_reminder_explicit_hint">Custom-time reminders require a start date.</string>
+    <string name="task_reminder_remove_desc">Remove reminder</string>
+    <string name="task_partial_save_recurrence">Task was saved, but recurrence was not saved: %1$s</string>
+    <string name="task_partial_save_reminders">Task was saved, but %1$s reminder(s) failed to save: %2$s</string>
+    <string name="task_section_expand_desc">Expand section</string>
+    <string name="task_section_collapse_desc">Collapse section</string>
+
+    <!-- Unit 4A.2D.3B: Task Detail Reminder Management -->
+    <string name="task_detail_section_reminders">Reminders</string>
+    <string name="task_detail_reminders_add">Add reminder</string>
+    <string name="task_detail_reminders_empty">No reminders set for this task.</string>
+    <string name="task_detail_reminders_terminal_hint">Reminders cannot be added, edited, enabled, snoozed, or deleted while this task is completed or cancelled.</string>
+    <string name="task_detail_reminder_msg_added">Reminder added.</string>
+    <string name="task_detail_reminder_msg_updated">Reminder updated.</string>
+    <string name="task_detail_reminder_msg_enabled">Reminder enabled.</string>
+    <string name="task_detail_reminder_msg_paused">Reminder paused.</string>
+    <string name="task_detail_reminder_msg_deleted">Reminder deleted.</string>
+    <string name="task_detail_reminder_msg_snoozed">Reminder snoozed to %1$s · %2$s.</string>
+    <string name="task_detail_reminder_offset_minutes_before">%1$dm before start</string>
+    <string name="task_detail_reminder_zero_offset_label">Exact time / at start</string>
+    <string name="task_detail_reminder_trigger_at">%1$s · %2$s</string>
+    <string name="reminder_schedule_state_pending_sync">Syncing</string>
+    <string name="reminder_schedule_state_exact">Exact alarm</string>
+    <string name="reminder_schedule_state_inexact">Approximate alarm</string>
+    <string name="reminder_schedule_state_paused">Paused</string>
+    <string name="reminder_schedule_state_consumed">Triggered</string>
+    <string name="reminder_schedule_state_cancelled">Cancelled</string>
+    <string name="reminder_schedule_state_failed_permanent">Schedule failed</string>
+    <string name="reminder_delivery_state_pending">Pending delivery</string>
+    <string name="reminder_delivery_state_posted">Notification posted</string>
+    <string name="reminder_delivery_state_suppressed_permission">Blocked: permission off</string>
+    <string name="reminder_delivery_state_suppressed_channel">Muted: channel off</string>
+    <string name="reminder_delivery_state_stale">Superseded</string>
+    <string name="reminder_delivery_state_expired">Expired</string>
+    <string name="reminder_delivery_state_failed_retryable">Retrying delivery</string>
+    <string name="reminder_delivery_state_failed_permanent">Delivery failed</string>
+    <string name="task_detail_reminder_diag_suppressed_permission">Notifications are blocked because the app notification permission is disabled. Enable notifications in system settings to receive alerts.</string>
+    <string name="task_detail_reminder_diag_suppressed_channel">Notifications are muted because the Task Reminders notification channel is disabled in system settings.</string>
+    <string name="task_detail_reminder_diag_failed_permanent">Reminder scheduling or delivery failed permanently. Try updating or recreating this reminder.</string>
+    <string name="task_detail_reminder_diag_inexact">Scheduled as an approximate alarm because exact alarm access is restricted on this device.</string>
+    <string name="task_detail_reminder_add_title">Add reminder</string>
+    <string name="task_detail_reminder_edit_title">Edit reminder</string>
+    <string name="task_detail_reminder_relative_group">Relative to start time</string>
+    <string name="task_detail_reminder_explicit_group">Explicit time</string>
+    <string name="task_detail_reminder_edit_current_trigger">Current trigger: %1$s · %2$s</string>
+    <string name="task_detail_reminder_pick_exact_time">Choose exact time</string>
+    <string name="task_detail_reminder_snooze_action">Snooze</string>
+    <string name="task_detail_reminder_snooze_title">Snooze reminder</string>
+    <string name="task_detail_reminder_snooze_desc">Reschedules only this reminder without changing the task date or start time.</string>
+    <string name="task_detail_reminder_snooze_5m">5 minutes</string>
+    <string name="task_detail_reminder_snooze_10m">10 minutes</string>
+    <string name="task_detail_reminder_snooze_30m">30 minutes</string>
+    <string name="task_detail_reminder_snooze_1h">1 hour</string>
+    <string name="task_detail_reminder_delete_dialog_title">Delete reminder?</string>
+    <string name="task_detail_reminder_delete_dialog_message">Delete the reminder scheduled for %1$s · %2$s? Any pending alarm will be cancelled.</string>
+    <string name="task_detail_reminder_toggle_desc">Enable or pause reminder</string>
+
+    <!-- Unit 4A.2D.3C: Task Detail Recurrence Management -->
+    <string name="task_detail_section_recurrence">Recurrence</string>
+    <string name="task_detail_recurrence_add">Add recurrence</string>
+    <string name="task_detail_recurrence_empty">No recurrence rule set for this task.</string>
+    <string name="task_detail_recurrence_requires_date_hint">Add a scheduled date to this task before setting a recurrence rule.</string>
+    <string name="task_detail_recurrence_terminal_hint">Recurrence rules cannot be added, edited, or deleted while this task is completed or cancelled.</string>
+    <string name="task_detail_recurrence_reopen_hint">Any next occurrence already generated remains independent. Reopening and completing this task again may create an additional occurrence.</string>
+    <string name="task_detail_recurrence_invalid_schedule_hint">This recurrence rule requires a valid scheduled date on or before its end date.</string>
+    <string name="task_detail_recurrence_every_1_day">Every 1 day</string>
+    <string name="task_detail_recurrence_every_n_days">Every %1$d days</string>
+    <string name="task_detail_recurrence_every_1_week">Every 1 week</string>
+    <string name="task_detail_recurrence_every_n_weeks">Every %1$d weeks</string>
+    <string name="task_detail_recurrence_every_1_month">Every 1 month</string>
+    <string name="task_detail_recurrence_every_n_months">Every %1$d months</string>
+    <string name="task_detail_recurrence_every_1_year">Every 1 year</string>
+    <string name="task_detail_recurrence_every_n_years">Every %1$d years</string>
+    <string name="task_detail_recurrence_days_summary">Days: %1$s</string>
+    <string name="task_detail_recurrence_same_weekday_summary">Repeats on the task weekday</string>
+    <string name="task_detail_recurrence_end_date_value">Ends on %1$s</string>
+    <string name="task_detail_recurrence_add_title">Add recurrence</string>
+    <string name="task_detail_recurrence_edit_title">Edit recurrence</string>
+    <string name="task_detail_recurrence_frequency_group">Repeat pattern</string>
+    <string name="task_detail_recurrence_days_group">Weekdays (Monday to Sunday)</string>
+    <string name="task_detail_recurrence_custom_days_hint">Select one or more weekdays. Repeats every %1$d week(s) across the selected days.</string>
+    <string name="task_detail_recurrence_weekly_days_hint">Optional: pick weekdays, or leave unselected to repeat on the scheduled weekday.</string>
+    <string name="task_detail_recurrence_delete_dialog_title">Remove recurrence?</string>
+    <string name="task_detail_recurrence_delete_dialog_message">Remove the recurrence rule from this task? The task itself and its reminders will remain unchanged.</string>
+    <string name="task_detail_recurrence_delete_desc">Remove recurrence</string>
+    <string name="task_detail_recurrence_msg_added">Recurrence rule added.</string>
+    <string name="task_detail_recurrence_msg_updated">Recurrence rule updated.</string>
+    <string name="task_detail_recurrence_msg_deleted">Recurrence rule removed.</string>
+    <string name="task_detail_msg_completed_recurring">Task completed. Next occurrence scheduled for %1$s.</string>
+
+    <!-- Unit 4A.2D.3D Batch 1: Terminal Locks & Paused Reminder Visibility -->
+    <string name="task_error_terminal_locked">Recurrence and reminders cannot be modified while this task is completed or cancelled.</string>
+    <string name="task_editor_recurrence_terminal_hint">Recurrence cannot be added, edited, or removed while this task is completed or cancelled.</string>
+    <string name="task_editor_reminders_terminal_hint">Reminders cannot be added, edited, re-enabled, or removed while this task is completed or cancelled.</string>
+    <string name="task_reminders_paused_only_summary">%1$s paused</string>
+    <string name="task_reminders_mixed_summary">%1$s active · %2$s paused</string>
+    <string name="task_reminder_reenable_action">Re-enable</string>
+    <string name="task_reminder_undo_reenable_action">Keep paused</string>
+    <string name="task_reminder_reenable_pending_badge">Will re-enable</string>
+    <string name="task_reminder_paused_restore_schedule_hint">Paused. Set a start date and start time to re-enable.</string>
+    <string name="task_reminder_paused_restore_date_hint">Paused. Set a start date to re-enable.</string>
 </resources>

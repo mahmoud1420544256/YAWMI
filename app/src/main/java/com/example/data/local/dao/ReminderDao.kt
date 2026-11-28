@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Update
 import com.example.data.local.entity.GoalReminderEntity
 import com.example.data.local.entity.HabitReminderEntity
+import com.example.data.local.entity.ReminderScheduleState
 import com.example.data.local.entity.TaskReminderEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -18,6 +19,9 @@ interface ReminderDao {
 
   @Query("SELECT * FROM task_reminders WHERE isEnabled = 1")
   fun observeAllEnabledTaskReminders(): Flow<List<TaskReminderEntity>>
+
+  @Query("SELECT * FROM task_reminders WHERE isEnabled = 1 ORDER BY triggerDate ASC, triggerTime ASC")
+  suspend fun getAllEnabledTaskReminders(): List<TaskReminderEntity>
 
   @Query("SELECT * FROM task_reminders WHERE id = :id")
   suspend fun getTaskReminderById(id: String): TaskReminderEntity?
@@ -100,4 +104,52 @@ interface ReminderDao {
     """
   )
   suspend fun isRequestCodeUsedInReminders(requestCode: Int): Boolean
+
+  @Query(
+    """
+    UPDATE task_reminders
+    SET scheduleState = :scheduleState,
+        updatedAtEpochMs = :updatedAtEpochMs
+    WHERE id = :id
+      AND scheduleRevision = :expectedRevision
+    """
+  )
+  suspend fun updateTaskReminderScheduleStateIfRevision(
+    id: String,
+    expectedRevision: Long,
+    scheduleState: ReminderScheduleState,
+    updatedAtEpochMs: Long,
+  ): Int
+
+  @Query(
+    """
+    UPDATE habit_reminders
+    SET scheduleState = :scheduleState,
+        updatedAtEpochMs = :updatedAtEpochMs
+    WHERE id = :id
+      AND scheduleRevision = :expectedRevision
+    """
+  )
+  suspend fun updateHabitReminderScheduleStateIfRevision(
+    id: String,
+    expectedRevision: Long,
+    scheduleState: ReminderScheduleState,
+    updatedAtEpochMs: Long,
+  ): Int
+
+  @Query(
+    """
+    UPDATE goal_reminders
+    SET scheduleState = :scheduleState,
+        updatedAtEpochMs = :updatedAtEpochMs
+    WHERE id = :id
+      AND scheduleRevision = :expectedRevision
+    """
+  )
+  suspend fun updateGoalReminderScheduleStateIfRevision(
+    id: String,
+    expectedRevision: Long,
+    scheduleState: ReminderScheduleState,
+    updatedAtEpochMs: Long,
+  ): Int
 }

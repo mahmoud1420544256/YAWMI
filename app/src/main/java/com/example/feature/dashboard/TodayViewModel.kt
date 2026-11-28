@@ -1,6 +1,7 @@
 package com.example.feature.dashboard
 
 import androidx.annotation.StringRes
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -19,18 +20,26 @@ import com.example.domain.task.TodayDashboardMetrics
 import com.example.domain.task.TodayDashboardRules
 import com.example.domain.task.TodayTaskItem
 import java.time.LocalDate
+import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class TodayUiState(
   val isLoading: Boolean = true,
-  val todayDate: LocalDate = LocalDate.now(),
+  val todayDate: LocalDate = LocalDate.MIN,
   val greetingPeriod: GreetingPeriod = GreetingPeriod.MORNING,
   val metrics: TodayDashboardMetrics =
     TodayDashboardMetrics(
@@ -52,33 +61,54 @@ sealed interface TodayUiEvent {
   data class ActionFailed(val error: TaskValidationError) : TodayUiEvent
 }
 
+private data class TodayTimeContext(
+  val date: LocalDate,
+  val zoneId: ZoneId,
+  val greetingPeriod: GreetingPeriod,
+)
+
 class TodayViewModel(
   taskRepository: TaskRepository,
   categoryUseCases: CategoryUseCases,
   private val taskUseCases: TaskUseCases,
   private val localClock: LocalClock,
+  private val midnightDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
 
   private val _events = MutableSharedFlow<TodayUiEvent>(extraBufferCapacity = 8)
   val events: SharedFlow<TodayUiEvent> = _events.asSharedFlow()
 
+  private val timeContext = MutableStateFlow(readTimeContext())
+  private var midnightJob: Job? = null
+
+  private val _activeMidnightTimerCount = AtomicInteger(0)
+  @VisibleForTesting
+  internal val activeMidnightTimerCount: Int
+    get() = _activeMidnightTimerCount.get()
+
+  private val _dashboardComputeCount = AtomicInteger(0)
+  @VisibleForTesting
+  internal val dashboardComputeCount: Int
+    get() = _dashboardComputeCount.get()
+
   val uiState: StateFlow<TodayUiState> =
     combine(
         taskRepository.observeAllTasks(),
         categoryUseCases.observeActiveCategories(),
-      ) { tasks, categories ->
-        val today = localClock.currentDate()
+        timeContext,
+      ) { tasks, categories, currentTime ->
+        _dashboardComputeCount.incrementAndGet()
         val snapshot =
           TodayDashboardRules.compute(
             tasks = tasks,
             categories = categories,
-            today = today,
-            zoneId = localClock.zoneId(),
+            today = currentTime.date,
+            zoneId = currentTime.zoneId,
           )
         TodayUiState(
           isLoading = false,
           todayDate = snapshot.todayDate,
-          greetingPeriod = localClock.greetingPeriod(),
+          greetingPeriod = currentTime.greetingPeriod,
           metrics = snapshot.metrics,
           priorityItems = snapshot.priorityItems,
           scheduleItems = snapshot.scheduleItems,
@@ -92,10 +122,82 @@ class TodayViewModel(
         initialValue =
           TodayUiState(
             isLoading = true,
-            todayDate = localClock.currentDate(),
-            greetingPeriod = localClock.greetingPeriod(),
+            todayDate = timeContext.value.date,
+            greetingPeriod = timeContext.value.greetingPeriod,
           ),
       )
+
+  init {
+    ensureMidnightTimerScheduled()
+  }
+
+  fun onForegroundStarted() {
+    ensureMidnightTimerScheduled()
+  }
+
+  fun onForegroundResumed() {
+    val latest = readTimeContext()
+    if (latest != timeContext.value) {
+      timeContext.value = latest
+      rescheduleMidnightTimer()
+    } else {
+      ensureMidnightTimerScheduled()
+    }
+  }
+
+  fun onForegroundStopped() {
+    cancelMidnightTimer()
+  }
+
+  fun onSystemTimeOrZoneChanged() {
+    val latest = readTimeContext()
+    if (latest != timeContext.value) {
+      timeContext.value = latest
+    }
+    rescheduleMidnightTimer()
+  }
+
+  private fun readTimeContext(): TodayTimeContext =
+    TodayTimeContext(
+      date = localClock.currentDate(),
+      zoneId = localClock.zoneId(),
+      greetingPeriod = localClock.greetingPeriod(),
+    )
+
+  private fun ensureMidnightTimerScheduled() {
+    if (midnightJob?.isActive == true) return
+    rescheduleMidnightTimer()
+  }
+
+  private fun rescheduleMidnightTimer() {
+    midnightJob?.cancel()
+    midnightJob =
+      viewModelScope.launch(midnightDispatcher) {
+        _activeMidnightTimerCount.incrementAndGet()
+        try {
+          while (isActive) {
+            val delayMs = localClock.millisUntilNextMidnight()
+            delay(delayMs)
+            val latest = readTimeContext()
+            if (latest != timeContext.value) {
+              timeContext.value = latest
+            }
+          }
+        } finally {
+          _activeMidnightTimerCount.decrementAndGet()
+        }
+      }
+  }
+
+  private fun cancelMidnightTimer() {
+    midnightJob?.cancel()
+    midnightJob = null
+  }
+
+  override fun onCleared() {
+    cancelMidnightTimer()
+    super.onCleared()
+  }
 
   fun toggleTaskCompletion(task: TaskEntity) {
     viewModelScope.launch {

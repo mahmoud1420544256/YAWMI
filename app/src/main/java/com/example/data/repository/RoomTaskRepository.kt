@@ -1,16 +1,29 @@
 package com.example.data.repository
 
 import androidx.room.withTransaction
+import com.example.core.time.LocalClock
+import com.example.core.time.SystemLocalClock
+import com.example.data.local.dao.GoalDao
 import com.example.data.local.dao.RecurrenceDao
 import com.example.data.local.dao.ReminderDao
 import com.example.data.local.dao.ReminderDeliveryDao
 import com.example.data.local.dao.TaskDao
 import com.example.data.local.db.YawmiDatabase
+import com.example.data.local.entity.GoalTaskCrossRef
 import com.example.data.local.entity.ReminderOwnerType
+import com.example.data.local.entity.ReminderScheduleState
 import com.example.data.local.entity.TaskEntity
 import com.example.data.local.entity.TaskRecurrenceEntity
+import com.example.data.local.entity.TaskReminderEntity
 import com.example.data.local.entity.TaskStatus
 import com.example.domain.repository.TaskRepository
+import com.example.domain.task.ReminderScheduleSyncAction
+import com.example.domain.task.TaskCompletionResult
+import com.example.domain.task.TaskDomainResult
+import com.example.domain.task.TaskRecurrenceRules
+import com.example.domain.task.TaskReminderRules
+import com.example.domain.task.TaskRules
+import com.example.domain.task.TaskValidationError
 import kotlinx.coroutines.flow.Flow
 
 class RoomTaskRepository(
@@ -20,6 +33,9 @@ class RoomTaskRepository(
   private val reminderDao: ReminderDao,
   private val deliveryDao: ReminderDeliveryDao,
   private val outboxCoordinator: ReminderOutboxCoordinator,
+  private val localClock: LocalClock = SystemLocalClock(),
+  private val goalDao: GoalDao = database.goalDao(),
+  private val onOutboxCommitted: suspend () -> Unit = {},
 ) : TaskRepository {
   override fun observeAllTasks(): Flow<List<TaskEntity>> = taskDao.observeAllTasks()
 
@@ -35,55 +51,269 @@ class RoomTaskRepository(
 
   override suspend fun insert(task: TaskEntity) = taskDao.insert(task)
 
-  override suspend fun update(task: TaskEntity) = taskDao.update(task)
+  override suspend fun update(task: TaskEntity) {
+    val stagedOutbox =
+      database.withTransaction {
+        val existing = taskDao.getById(task.id) ?: return@withTransaction false
+        taskDao.update(task)
+
+        val now = localClock.currentEpochMs()
+        val reminders = reminderDao.getTaskRemindersByTaskId(task.id)
+        if (reminders.isEmpty()) return@withTransaction false
+
+        if (task.status == TaskStatus.COMPLETED || task.status == TaskStatus.CANCELLED) {
+          return@withTransaction cancelTaskRemindersLocked(reminders = reminders, nowEpochMs = now)
+        }
+
+        var staged = false
+        for (reminder in reminders) {
+          when (
+            val action =
+              TaskReminderRules.resolveSyncActionOnTaskScheduleChange(
+                previousTask = existing,
+                updatedTask = task,
+                reminder = reminder,
+              )
+          ) {
+            is ReminderScheduleSyncAction.Reschedule -> {
+              val nextRev = reminder.scheduleRevision + 1L
+              reminderDao.updateTaskReminder(
+                reminder.copy(
+                  triggerDate = action.triggerDate,
+                  triggerTime = action.triggerTime,
+                  scheduleRevision = nextRev,
+                  scheduleState = ReminderScheduleState.PENDING_SYNC,
+                  updatedAtEpochMs = now,
+                )
+              )
+              deliveryDao.markPendingTaskDeliveriesStale(reminder.id, now)
+              outboxCoordinator.stageScheduleAlarmLocked(
+                ownerType = ReminderOwnerType.TASK,
+                reminderId = reminder.id,
+                requestCode = reminder.requestCode,
+                targetScheduleRevision = nextRev,
+                nowEpochMs = now,
+              )
+              staged = true
+            }
+            ReminderScheduleSyncAction.PauseMissingReference -> {
+              val nextRev = reminder.scheduleRevision + 1L
+              reminderDao.updateTaskReminder(
+                reminder.copy(
+                  isEnabled = false,
+                  scheduleRevision = nextRev,
+                  scheduleState = ReminderScheduleState.PAUSED,
+                  updatedAtEpochMs = now,
+                )
+              )
+              deliveryDao.markPendingTaskDeliveriesStale(reminder.id, now)
+              outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+                ownerType = ReminderOwnerType.TASK,
+                reminderId = reminder.id,
+                requestCode = reminder.requestCode,
+                targetScheduleRevision = nextRev,
+                nowEpochMs = now,
+              )
+              staged = true
+            }
+            ReminderScheduleSyncAction.Unchanged -> Unit
+          }
+        }
+        staged
+      }
+    if (stagedOutbox) {
+      onOutboxCommitted()
+    }
+  }
 
   override suspend fun updateStatus(
     id: String,
     status: TaskStatus,
     updatedAtEpochMs: Long,
     completedAtEpochMs: Long?,
-  ): Int = database.withTransaction {
-    val updated = taskDao.updateStatus(id, status, updatedAtEpochMs, completedAtEpochMs)
-    if (updated > 0 && (status == TaskStatus.COMPLETED || status == TaskStatus.CANCELLED)) {
-      val reminders = reminderDao.getTaskRemindersByTaskId(id)
-      for (reminder in reminders) {
-        deliveryDao.markPendingTaskDeliveriesStale(reminder.id, updatedAtEpochMs)
-        if (reminder.isEnabled) {
-          val nextRev = reminder.scheduleRevision + 1L
-          reminderDao.updateTaskReminder(
-            reminder.copy(
-              isEnabled = false,
-              scheduleRevision = nextRev,
-              updatedAtEpochMs = updatedAtEpochMs,
+  ): Int {
+    var stagedOutbox = false
+    val updated =
+      database.withTransaction {
+        val count = taskDao.updateStatus(id, status, updatedAtEpochMs, completedAtEpochMs)
+        if (count > 0 && (status == TaskStatus.COMPLETED || status == TaskStatus.CANCELLED)) {
+          val reminders = reminderDao.getTaskRemindersByTaskId(id)
+          stagedOutbox = cancelTaskRemindersLocked(reminders = reminders, nowEpochMs = updatedAtEpochMs)
+        }
+        count
+      }
+    if (stagedOutbox) {
+      onOutboxCommitted()
+    }
+    return updated
+  }
+
+  override suspend fun completeTaskWithRecurrence(
+    taskId: String,
+    nowEpochMs: Long,
+    idGenerator: () -> String,
+  ): TaskDomainResult<TaskCompletionResult> {
+    var stagedOutbox = false
+    val result =
+      database.withTransaction {
+        val existing =
+          taskDao.getById(taskId)
+            ?: return@withTransaction TaskDomainResult.Failure(
+              listOf(TaskValidationError.TaskNotFound(taskId))
             )
+
+        val transitioned =
+          TaskRules.applyStatusTransition(
+            existing = existing,
+            targetStatus = TaskStatus.COMPLETED,
+            nowEpochMs = nowEpochMs,
           )
+        val completedTask =
+          when (transitioned) {
+            is TaskDomainResult.Failure -> return@withTransaction transitioned
+            is TaskDomainResult.Success -> transitioned.value
+          }
+
+        // Snapshot existing reminders before completion disables them so enabled reminders can carry
+        // forward to the spawned recurring occurrence.
+        val existingReminders = reminderDao.getTaskRemindersByTaskId(taskId)
+        val enabledRemindersBeforeCompletion = existingReminders.filter { it.isEnabled }
+
+        taskDao.updateStatus(
+          id = completedTask.id,
+          status = completedTask.status,
+          updatedAtEpochMs = completedTask.updatedAtEpochMs,
+          completedAtEpochMs = completedTask.completedAtEpochMs,
+        )
+        if (cancelTaskRemindersLocked(reminders = existingReminders, nowEpochMs = nowEpochMs)) {
+          stagedOutbox = true
+        }
+
+    // Keep the completed task's TaskRecurrenceEntity intact as historical record; if a next
+    // occurrence falls within endDate, spawn a new PENDING TaskEntity + new TaskRecurrenceEntity
+    // + new enabled reminders + goal links.
+    val recurrence = recurrenceDao.getTaskRecurrenceByTaskId(taskId)
+    val nextDate =
+      recurrence?.let {
+        TaskRecurrenceRules.computeNextOccurrenceDateForTask(
+          completedTask = completedTask,
+          recurrence = it,
+          fallbackDate = localClock.currentDate(),
+        )
+      }
+
+    if (recurrence == null || nextDate == null) {
+      return@withTransaction TaskDomainResult.Success(
+        TaskCompletionResult(completedTask = completedTask)
+      )
+    }
+
+    val nextTask =
+      TaskEntity(
+        id = idGenerator(),
+        title = completedTask.title,
+        description = completedTask.description,
+        scheduledDate = TaskReminderRules.formatDate(nextDate),
+        startTime = completedTask.startTime,
+        endTime = completedTask.endTime,
+        priority = completedTask.priority,
+        status = TaskStatus.PENDING,
+        categoryId = completedTask.categoryId,
+        notes = completedTask.notes,
+        createdAtEpochMs = nowEpochMs,
+        updatedAtEpochMs = nowEpochMs,
+        completedAtEpochMs = null,
+      )
+    taskDao.insert(nextTask)
+
+    val nextRecurrence =
+      TaskRecurrenceEntity(
+        id = idGenerator(),
+        taskId = nextTask.id,
+        frequency = recurrence.frequency,
+        interval = recurrence.interval,
+        daysOfWeekMask = recurrence.daysOfWeekMask,
+        endDate = recurrence.endDate,
+        updatedAtEpochMs = nowEpochMs,
+      )
+    recurrenceDao.insertTaskRecurrence(nextRecurrence)
+
+    for (goalLink in goalDao.getGoalLinksForTask(taskId)) {
+      goalDao.linkTask(GoalTaskCrossRef(goalId = goalLink.goalId, taskId = nextTask.id))
+    }
+
+    val spawnedReminders = mutableListOf<TaskReminderEntity>()
+    for (previousReminder in enabledRemindersBeforeCompletion) {
+      val resolved =
+        TaskReminderRules.resolveNextOccurrenceReminderTrigger(
+          nextTask = nextTask,
+          previousReminder = previousReminder,
+          previousTaskStartTime = completedTask.startTime,
+        ) ?: continue
+      val requestCode = outboxCoordinator.allocateNextRequestCodeLocked()
+      val nextReminder =
+        TaskReminderEntity(
+          id = idGenerator(),
+          taskId = nextTask.id,
+          triggerDate = resolved.triggerDate,
+          triggerTime = resolved.triggerTime,
+          offsetMinutes = resolved.offsetMinutes,
+          requestCode = requestCode,
+          scheduleRevision = 1L,
+          isEnabled = true,
+          scheduleState = ReminderScheduleState.PENDING_SYNC,
+          updatedAtEpochMs = nowEpochMs,
+        )
+      reminderDao.insertTaskReminder(nextReminder)
+      outboxCoordinator.stageScheduleAlarmLocked(
+        ownerType = ReminderOwnerType.TASK,
+        reminderId = nextReminder.id,
+        requestCode = requestCode,
+        targetScheduleRevision = nextReminder.scheduleRevision,
+        nowEpochMs = nowEpochMs,
+      )
+      stagedOutbox = true
+      spawnedReminders += nextReminder
+    }
+
+    TaskDomainResult.Success(
+      TaskCompletionResult(
+        completedTask = completedTask,
+        generatedNextTask = nextTask,
+        generatedRecurrence = nextRecurrence,
+        generatedReminders = spawnedReminders,
+      )
+    )
+      }
+    if (stagedOutbox) {
+      onOutboxCommitted()
+    }
+    return result
+  }
+
+  override suspend fun deleteById(id: String): Int {
+    var stagedOutbox = false
+    val deleted =
+      database.withTransaction {
+        val now = localClock.currentEpochMs()
+        val reminders = reminderDao.getTaskRemindersByTaskId(id)
+        for (reminder in reminders) {
+          deliveryDao.markPendingTaskDeliveriesStale(reminder.id, now)
           outboxCoordinator.stageCancelAlarmAndNotificationLocked(
             ownerType = ReminderOwnerType.TASK,
             reminderId = reminder.id,
             requestCode = reminder.requestCode,
-            targetScheduleRevision = nextRev,
-            nowEpochMs = updatedAtEpochMs,
+            targetScheduleRevision = reminder.scheduleRevision + 1L,
+            nowEpochMs = now,
           )
+          stagedOutbox = true
         }
+        taskDao.deleteById(id)
       }
+    if (stagedOutbox) {
+      onOutboxCommitted()
     }
-    updated
-  }
-
-  override suspend fun deleteById(id: String): Int = database.withTransaction {
-    val now = System.currentTimeMillis()
-    val reminders = reminderDao.getTaskRemindersByTaskId(id)
-    for (reminder in reminders) {
-      deliveryDao.markPendingTaskDeliveriesStale(reminder.id, now)
-      outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-        ownerType = ReminderOwnerType.TASK,
-        reminderId = reminder.id,
-        requestCode = reminder.requestCode,
-        targetScheduleRevision = reminder.scheduleRevision + 1L,
-        nowEpochMs = now,
-      )
-    }
-    taskDao.deleteById(id)
+    return deleted
   }
 
   override fun observeTaskRecurrence(taskId: String): Flow<TaskRecurrenceEntity?> =
@@ -104,4 +334,34 @@ class RoomTaskRepository(
 
   override suspend fun deleteTaskRecurrence(taskId: String): Int =
     recurrenceDao.deleteTaskRecurrenceByTaskId(taskId)
+
+  private suspend fun cancelTaskRemindersLocked(
+    reminders: List<TaskReminderEntity>,
+    nowEpochMs: Long,
+  ): Boolean {
+    var staged = false
+    for (reminder in reminders) {
+      deliveryDao.markPendingTaskDeliveriesStale(reminder.id, nowEpochMs)
+      if (reminder.isEnabled || reminder.scheduleState != ReminderScheduleState.CANCELLED) {
+        val nextRev = reminder.scheduleRevision + 1L
+        reminderDao.updateTaskReminder(
+          reminder.copy(
+            isEnabled = false,
+            scheduleRevision = nextRev,
+            scheduleState = ReminderScheduleState.CANCELLED,
+            updatedAtEpochMs = nowEpochMs,
+          )
+        )
+        outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+          ownerType = ReminderOwnerType.TASK,
+          reminderId = reminder.id,
+          requestCode = reminder.requestCode,
+          targetScheduleRevision = nextRev,
+          nowEpochMs = nowEpochMs,
+        )
+        staged = true
+      }
+    }
+    return staged
+  }
 }

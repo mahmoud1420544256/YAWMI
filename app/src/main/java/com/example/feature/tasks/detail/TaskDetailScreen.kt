@@ -82,12 +82,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
+import com.example.core.time.DatePickerLocalDateMapper
 import com.example.core.time.LocalClock
+import com.example.core.time.ObserveTodayTimeAndLifecycle
 import com.example.data.local.entity.TaskEntity
 import com.example.data.local.entity.TaskPriority
 import com.example.data.local.entity.TaskStatus
 import com.example.domain.category.CategoryUseCases
 import com.example.domain.repository.TaskRepository
+import com.example.domain.task.TaskReminderUseCases
 import com.example.domain.task.TaskUseCases
 import com.example.feature.tasks.components.CategoryManagerSheet
 import com.example.feature.tasks.components.CategoryTokens
@@ -99,7 +102,6 @@ import com.example.ui.theme.LocalYawmiSemanticColors
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -115,6 +117,7 @@ fun TaskDetailScreen(
   onNavigateBack: () -> Unit,
   onShowSnackbar: ((String) -> Unit)? = null,
   modifier: Modifier = Modifier,
+  taskReminderUseCases: TaskReminderUseCases? = null,
 ) {
   val viewModel: TaskDetailViewModel =
     viewModel(
@@ -126,6 +129,7 @@ fun TaskDetailScreen(
           categoryUseCases = categoryUseCases,
           taskUseCases = taskUseCases,
           localClock = localClock,
+          taskReminderUseCases = taskReminderUseCases,
         ),
     )
 
@@ -134,6 +138,13 @@ fun TaskDetailScreen(
   val semantic = LocalYawmiSemanticColors.current
   val localSnackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
+
+  ObserveTodayTimeAndLifecycle(
+    onStarted = viewModel::onForegroundStarted,
+    onResumed = viewModel::onForegroundResumed,
+    onStopped = viewModel::onForegroundStopped,
+    onSystemTimeChanged = viewModel::onSystemTimeOrZoneChanged,
+  )
 
   val emitFeedback: (String) -> Unit = { message ->
     if (onShowSnackbar != null) {
@@ -152,7 +163,21 @@ fun TaskDetailScreen(
         is TaskDetailUiEvent.ActionSucceeded -> emitFeedback(context.getString(event.messageRes))
         is TaskDetailUiEvent.PostponeSucceeded ->
           emitFeedback(context.getString(R.string.task_detail_msg_postponed, event.formattedDate))
+        is TaskDetailUiEvent.RecurringTaskCompleted ->
+          emitFeedback(
+            context.getString(R.string.task_detail_msg_completed_recurring, event.nextScheduledDate)
+          )
+        is TaskDetailUiEvent.ReminderSnoozed ->
+          emitFeedback(
+            context.getString(
+              R.string.task_detail_reminder_msg_snoozed,
+              event.triggerDate,
+              event.triggerTime,
+            )
+          )
         is TaskDetailUiEvent.ActionFailed -> emitFeedback(event.error.toLocalizedMessage(context))
+        is TaskDetailUiEvent.ReminderActionFailed ->
+          emitFeedback(event.error.toLocalizedMessage(context))
         TaskDetailUiEvent.Deleted -> {
           emitFeedback(context.getString(R.string.task_detail_msg_deleted))
           onNavigateBack()
@@ -182,6 +207,8 @@ fun TaskDetailScreen(
         emitFeedback(context.getString(R.string.task_detail_msg_updated))
       },
       onDismiss = { showEditor = false },
+      taskReminderUseCases = taskReminderUseCases,
+      onPartialSaveWarning = emitFeedback,
     )
   }
 
@@ -268,14 +295,21 @@ fun TaskDetailScreen(
   }
 
   if (showPostponeDatePicker && loadedState != null) {
-    val datePickerState = rememberDatePickerState()
+    val datePickerState =
+      rememberDatePickerState(
+        initialSelectedDateMillis =
+          DatePickerLocalDateMapper.initialPickerMillis(
+            existingIsoDate = loadedState.task.scheduledDate,
+            localClock = localClock,
+          )
+      )
     DatePickerDialog(
       onDismissRequest = { showPostponeDatePicker = false },
       confirmButton = {
         TextButton(
           onClick = {
             datePickerState.selectedDateMillis?.let { millis ->
-              val pickedDate = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+              val pickedDate = DatePickerLocalDateMapper.pickerMillisToLocalDate(millis)
               viewModel.postponeToDate(pickedDate)
             }
             showPostponeDatePicker = false
@@ -568,11 +602,46 @@ fun TaskDetailScreen(
               isOverdue = state.isOverdue,
             )
 
+            // 2b. Reminders Management Card
+            if (state.isReminderManagementEnabled) {
+              TaskDetailRemindersCard(
+                task = task,
+                reminders = state.reminders,
+                isMutating = state.isMutating,
+                onAddRelativeReminder = viewModel::addRelativeReminder,
+                onAddExplicitReminder = { triggerTime ->
+                  viewModel.addExplicitReminder(triggerTime = triggerTime)
+                },
+                onSetReminderEnabled = viewModel::setReminderEnabled,
+                onUpdateReminderOffset = viewModel::updateReminderOffset,
+                onUpdateExplicitReminderTime = { reminderId, triggerTime, triggerDate ->
+                  viewModel.updateExplicitReminderTime(
+                    reminderId = reminderId,
+                    triggerTime = triggerTime,
+                    triggerDate = triggerDate,
+                  )
+                },
+                onSnoozeReminder = viewModel::snoozeReminder,
+                onDeleteReminder = viewModel::deleteReminder,
+              )
+            }
+
+            // 2c. Recurrence Management Card
+            TaskDetailRecurrenceCard(
+              task = task,
+              recurrence = state.recurrence,
+              showReopenWarning = state.showReopenRecurrenceWarning,
+              isMutating = state.isMutating,
+              localClock = localClock,
+              onSaveRecurrence = viewModel::saveRecurrence,
+              onRemoveRecurrence = viewModel::removeRecurrence,
+            )
+
             // 3. Description & Notes Card
             TaskDetailsContentCard(task = task)
 
             // 4. Timeline / Timestamps Card
-            TaskTimestampsCard(task = task)
+            TaskTimestampsCard(task = task, zoneId = state.zoneId)
 
             // 5. Lifecycle Actions Card
             Card(
@@ -888,7 +957,7 @@ private fun TaskDetailsContentCard(task: TaskEntity) {
 }
 
 @Composable
-private fun TaskTimestampsCard(task: TaskEntity) {
+private fun TaskTimestampsCard(task: TaskEntity, zoneId: ZoneId) {
   val semantic = LocalYawmiSemanticColors.current
   val configuration = LocalConfiguration.current
   val locale =
@@ -915,7 +984,7 @@ private fun TaskTimestampsCard(task: TaskEntity) {
       DetailInfoRow(
         icon = Icons.Outlined.History,
         label = stringResource(R.string.task_detail_label_created_at),
-        value = formatEpochTimestamp(task.createdAtEpochMs, locale),
+        value = formatEpochTimestamp(task.createdAtEpochMs, locale, zoneId),
         useMonoFont = true,
         valueTag = "task_detail_created_at",
       )
@@ -923,7 +992,7 @@ private fun TaskTimestampsCard(task: TaskEntity) {
       DetailInfoRow(
         icon = Icons.Outlined.Update,
         label = stringResource(R.string.task_detail_label_updated_at),
-        value = formatEpochTimestamp(task.updatedAtEpochMs, locale),
+        value = formatEpochTimestamp(task.updatedAtEpochMs, locale, zoneId),
         useMonoFont = true,
         valueTag = "task_detail_updated_at",
       )
@@ -932,7 +1001,7 @@ private fun TaskTimestampsCard(task: TaskEntity) {
         DetailInfoRow(
           icon = Icons.Outlined.EventAvailable,
           label = stringResource(R.string.task_detail_label_completed_at),
-          value = formatEpochTimestamp(completedMs, locale),
+          value = formatEpochTimestamp(completedMs, locale, zoneId),
           valueColor = semantic.success,
           useMonoFont = true,
           valueTag = "task_detail_completed_at",
@@ -1018,7 +1087,7 @@ private fun DetailBadge(
 private fun formatEpochTimestamp(
   epochMs: Long,
   locale: Locale,
-  zoneId: ZoneId = ZoneId.systemDefault(),
+  zoneId: ZoneId,
 ): String {
   val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd · HH:mm", locale)
   return Instant.ofEpochMilli(epochMs).atZone(zoneId).format(formatter)

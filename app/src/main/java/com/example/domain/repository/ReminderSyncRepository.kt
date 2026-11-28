@@ -11,8 +11,12 @@ import com.example.data.local.entity.TaskReminderEntity
 import kotlinx.coroutines.flow.Flow
 
 interface ReminderSyncRepository {
-  // Reminders Observation
+  // Reminders Observation & Query
   fun observeTaskReminders(taskId: String): Flow<List<TaskReminderEntity>>
+
+  suspend fun getTaskReminders(taskId: String): List<TaskReminderEntity>
+
+  suspend fun getTaskReminderById(reminderId: String): TaskReminderEntity?
 
   fun observeHabitReminders(habitId: String): Flow<List<HabitReminderEntity>>
 
@@ -52,6 +56,13 @@ interface ReminderSyncRepository {
     triggerTime: String,
     offsetMinutes: Int,
     isEnabled: Boolean,
+    nowEpochMs: Long,
+  ): TaskReminderEntity
+
+  suspend fun snoozeTaskReminder(
+    reminderId: String,
+    triggerDate: String,
+    triggerTime: String,
     nowEpochMs: Long,
   ): TaskReminderEntity
 

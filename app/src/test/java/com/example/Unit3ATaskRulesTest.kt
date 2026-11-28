@@ -107,15 +107,25 @@ class Unit3ATaskRulesTest {
     assertTrue(formatErrors.any { it is TaskValidationError.InvalidStartTime })
     assertTrue(formatErrors.any { it is TaskValidationError.InvalidEndTime })
 
-    // Equal start and end -> allowed
+    // Single-digit hour normalization (9:05 -> 09:05) -> allowed when end > start
+    val normalizedWindow =
+      TaskRules.buildNewTaskEntity(
+        TaskInput(title = "Morning check", scheduledDate = "2026-11-25", startTime = "9:05", endTime = "09:30"),
+        nowEpochMs = 1000L,
+      )
+    val task = (normalizedWindow as TaskDomainResult.Success).value
+    assertEquals("09:05", task.startTime)
+    assertEquals("09:30", task.endTime)
+
+    // Equal start and end -> rejected under Unit 4A.2D validation policy
     val zeroDuration =
       TaskRules.buildNewTaskEntity(
         TaskInput(title = "Deadline", scheduledDate = "2026-11-25", startTime = "9:05", endTime = "09:05"),
         nowEpochMs = 1000L,
       )
-    val task = (zeroDuration as TaskDomainResult.Success).value
-    assertEquals("09:05", task.startTime)
-    assertEquals("09:05", task.endTime)
+    assertTrue(
+      (zeroDuration as TaskDomainResult.Failure).errors.contains(TaskValidationError.EndTimeEqualsStartTime)
+    )
   }
 
   @Test

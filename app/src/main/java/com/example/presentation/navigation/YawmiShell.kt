@@ -31,6 +31,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,6 +55,7 @@ import com.example.core.preferences.AppThemeMode
 import com.example.core.time.LocalClock
 import com.example.domain.category.CategoryUseCases
 import com.example.domain.repository.TaskRepository
+import com.example.domain.task.TaskReminderUseCases
 import com.example.domain.task.TaskUseCases
 import com.example.feature.calendar.CalendarScreen
 import com.example.feature.dashboard.TodayScreen
@@ -82,12 +84,25 @@ fun YawmiShell(
   onSelectThemeMode: (AppThemeMode) -> Unit,
   onSelectLanguage: (AppLanguage) -> Unit,
   modifier: Modifier = Modifier,
+  taskReminderUseCases: TaskReminderUseCases? = null,
+  pendingOpenTaskId: String? = null,
+  onConsumeOpenTaskId: () -> Unit = {},
 ) {
   val navController = rememberNavController()
   val backStackEntry by navController.currentBackStackEntryAsState()
   val currentDestination = backStackEntry?.destination
   val snackbarHostState = remember { SnackbarHostState() }
   val coroutineScope = rememberCoroutineScope()
+
+  LaunchedEffect(pendingOpenTaskId) {
+    val targetTaskId = pendingOpenTaskId
+    if (!targetTaskId.isNullOrBlank()) {
+      navController.navigate(TaskDetailRoute(targetTaskId)) {
+        launchSingleTop = true
+      }
+      onConsumeOpenTaskId()
+    }
+  }
 
   val destinations = remember {
     listOf(
@@ -223,6 +238,7 @@ fun YawmiShell(
               language = appearanceState.language,
               taskRepository = taskRepository,
               taskUseCases = taskUseCases,
+              taskReminderUseCases = taskReminderUseCases,
               categoryUseCases = categoryUseCases,
               localClock = localClock,
               onOpenTaskDetail = { taskId -> navController.navigate(TaskDetailRoute(taskId)) },
@@ -239,6 +255,7 @@ fun YawmiShell(
             TasksScreen(
               taskRepository = taskRepository,
               taskUseCases = taskUseCases,
+              taskReminderUseCases = taskReminderUseCases,
               categoryUseCases = categoryUseCases,
               localClock = localClock,
               onShowSnackbar = { msg ->
@@ -258,6 +275,7 @@ fun YawmiShell(
               taskId = route.taskId,
               taskRepository = taskRepository,
               taskUseCases = taskUseCases,
+              taskReminderUseCases = taskReminderUseCases,
               categoryUseCases = categoryUseCases,
               localClock = localClock,
               onNavigateBack = { navController.popBackStack() },
@@ -269,7 +287,22 @@ fun YawmiShell(
               },
             )
           }
-          composable<CalendarRoute> { CalendarScreen() }
+          composable<CalendarRoute> {
+            CalendarScreen(
+              language = appearanceState.language,
+              taskRepository = taskRepository,
+              taskUseCases = taskUseCases,
+              categoryUseCases = categoryUseCases,
+              localClock = localClock,
+              onOpenTaskDetail = { taskId -> navController.navigate(TaskDetailRoute(taskId)) },
+              onShowSnackbar = { msg ->
+                coroutineScope.launch {
+                  snackbarHostState.currentSnackbarData?.dismiss()
+                  snackbarHostState.showSnackbar(msg)
+                }
+              },
+            )
+          }
           composable<HabitsGoalsRoute> { HabitsGoalsScreen() }
           composable<StatsSettingsRoute> {
             StatsSettingsScreen(

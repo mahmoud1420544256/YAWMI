@@ -7,6 +7,10 @@ object YawmiMetadataKeys {
   const val DISPATCHER_LEASE_OWNER = "dispatcherLeaseOwner"
   const val DISPATCHER_LEASE_UNTIL_EPOCH_MS = "dispatcherLeaseUntilEpochMs"
   const val DISPATCHER_LEASE_GENERATION = "dispatcherLeaseGeneration"
+  const val LAST_EXACT_ALARM_CAPABILITY = "last_exact_alarm_capability"
+  const val LAST_RECONCILED_ZONE_ID = "last_reconciled_zone_id"
+  const val RECONCILE_FORCE_REQUEST_SEQ = "reconcile_force_request_seq"
+  const val RECONCILE_FORCE_HANDLED_SEQ = "reconcile_force_handled_seq"
 
   const val MIN_REMINDER_REQUEST_CODE = 1000
 
@@ -18,5 +22,9 @@ object YawmiMetadataKeys {
       DISPATCHER_LEASE_OWNER,
       DISPATCHER_LEASE_UNTIL_EPOCH_MS,
       DISPATCHER_LEASE_GENERATION,
+      LAST_EXACT_ALARM_CAPABILITY,
+      LAST_RECONCILED_ZONE_ID,
+      RECONCILE_FORCE_REQUEST_SEQ,
+      RECONCILE_FORCE_HANDLED_SEQ,
     )
 }

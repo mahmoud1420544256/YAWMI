@@ -5,6 +5,7 @@ import com.example.R
 import com.example.data.local.entity.TaskPriority
 import com.example.data.local.entity.TaskStatus
 import com.example.domain.category.CategoryValidationError
+import com.example.domain.task.TaskReminderError
 import com.example.domain.task.TaskValidationError
 
 fun TaskValidationError.toLocalizedMessage(context: Context): String =
@@ -15,9 +16,49 @@ fun TaskValidationError.toLocalizedMessage(context: Context): String =
     is TaskValidationError.InvalidEndTime -> context.getString(R.string.task_error_invalid_end_time)
     TaskValidationError.EndTimeWithoutStartTime -> context.getString(R.string.task_error_end_without_start)
     TaskValidationError.EndTimeBeforeStartTime -> context.getString(R.string.task_error_end_before_start)
+    TaskValidationError.EndTimeEqualsStartTime -> context.getString(R.string.task_error_end_equals_start)
+    TaskValidationError.NextDayRequiresScheduledDate ->
+      context.getString(R.string.task_error_next_day_requires_date)
+    TaskValidationError.NextDayRequiresTimeWindow ->
+      context.getString(R.string.task_error_next_day_requires_time_window)
+    TaskValidationError.NextDayRequiresEndBeforeStart ->
+      context.getString(R.string.task_error_next_day_requires_end_before_start)
     is TaskValidationError.CategoryNotFound -> context.getString(R.string.task_error_category_not_found)
     is TaskValidationError.TaskNotFound -> context.getString(R.string.task_error_not_found)
-    is TaskValidationError.InvalidStatusTransition -> context.getString(R.string.task_error_invalid_transition)
+    is TaskValidationError.InvalidStatusTransition ->
+      if (from == to && (from == TaskStatus.COMPLETED || from == TaskStatus.CANCELLED)) {
+        context.getString(R.string.task_error_terminal_locked)
+      } else {
+        context.getString(R.string.task_error_invalid_transition)
+      }
+    is TaskValidationError.InvalidRecurrenceInterval -> context.getString(R.string.task_error_recurrence_interval)
+    is TaskValidationError.InvalidRecurrenceEndDate -> context.getString(R.string.task_error_recurrence_end_date)
+    TaskValidationError.RecurrenceEndDateBeforeScheduledDate ->
+      context.getString(R.string.task_error_recurrence_end_before_start)
+    TaskValidationError.RecurrenceRequiresScheduledDate ->
+      context.getString(R.string.task_error_recurrence_requires_date)
+    TaskValidationError.RecurrenceRequiresDaysMask ->
+      context.getString(R.string.task_error_recurrence_requires_days)
+  }
+
+fun TaskReminderError.toLocalizedMessage(context: Context): String =
+  when (this) {
+    is TaskReminderError.TaskNotFound -> context.getString(R.string.task_reminder_error_task_not_found)
+    is TaskReminderError.ReminderNotFound ->
+      context.getString(R.string.task_reminder_error_reminder_not_found)
+    is TaskReminderError.TaskNotActive -> context.getString(R.string.task_reminder_error_task_not_active)
+    TaskReminderError.MissingScheduledDate ->
+      context.getString(R.string.task_reminder_error_missing_date)
+    TaskReminderError.RelativeReminderRequiresStartTime ->
+      context.getString(R.string.task_reminder_error_requires_start_time)
+    is TaskReminderError.InvalidOffsetMinutes ->
+      context.getString(R.string.task_reminder_error_invalid_offset)
+    is TaskReminderError.InvalidTriggerDate ->
+      context.getString(R.string.task_reminder_error_invalid_date)
+    is TaskReminderError.InvalidTriggerTime ->
+      context.getString(R.string.task_reminder_error_invalid_time)
+    is TaskReminderError.InvalidSnoozeMinutes ->
+      context.getString(R.string.task_reminder_error_invalid_snooze)
   }
 
 fun CategoryValidationError.toLocalizedMessage(context: Context): String =

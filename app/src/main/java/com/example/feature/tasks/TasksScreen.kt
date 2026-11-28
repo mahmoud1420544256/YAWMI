@@ -80,16 +80,17 @@ import com.example.domain.task.TaskQueryFilter
 import com.example.domain.task.TaskScheduleFilter
 import com.example.domain.task.TaskSortOption
 import com.example.domain.task.TaskStatusFilter
+import com.example.domain.task.TaskReminderUseCases
 import com.example.domain.task.TaskUseCases
 import com.example.feature.tasks.components.CategoryManagerSheet
 import com.example.feature.tasks.components.CategoryTokens
 import com.example.feature.tasks.components.TaskEditorSheet
 import com.example.feature.tasks.components.TaskListItemCard
 import com.example.feature.tasks.components.toLocalizedMessage
+import com.example.core.time.DatePickerLocalDateMapper
+import com.example.core.time.ObserveTodayTimeAndLifecycle
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalYawmiSemanticColors
-import java.time.Instant
-import java.time.ZoneOffset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,6 +102,7 @@ fun TasksScreen(
   onShowSnackbar: (String) -> Unit = {},
   modifier: Modifier = Modifier,
   onOpenTaskDetail: ((String) -> Unit)? = null,
+  taskReminderUseCases: TaskReminderUseCases? = null,
 ) {
   val viewModel: TasksViewModel =
     viewModel(
@@ -115,6 +117,13 @@ fun TasksScreen(
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
   val context = LocalContext.current
   val semantic = LocalYawmiSemanticColors.current
+
+  ObserveTodayTimeAndLifecycle(
+    onStarted = viewModel::onForegroundStarted,
+    onResumed = viewModel::onForegroundResumed,
+    onStopped = viewModel::onForegroundStopped,
+    onSystemTimeChanged = viewModel::onSystemTimeOrZoneChanged,
+  )
 
   LaunchedEffect(viewModel) {
     viewModel.events.collect { event ->
@@ -153,6 +162,8 @@ fun TasksScreen(
         showEditor = false
         editingTask = null
       },
+      taskReminderUseCases = taskReminderUseCases,
+      onPartialSaveWarning = onShowSnackbar,
     )
   }
 
@@ -200,14 +211,21 @@ fun TasksScreen(
   }
 
   taskPendingPostponeDate?.let { target ->
-    val datePickerState = rememberDatePickerState()
+    val datePickerState =
+      rememberDatePickerState(
+        initialSelectedDateMillis =
+          DatePickerLocalDateMapper.initialPickerMillis(
+            existingIsoDate = target.scheduledDate,
+            localClock = localClock,
+          )
+      )
     DatePickerDialog(
       onDismissRequest = { taskPendingPostponeDate = null },
       confirmButton = {
         TextButton(
           onClick = {
             datePickerState.selectedDateMillis?.let { millis ->
-              val pickedDate = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+              val pickedDate = DatePickerLocalDateMapper.pickerMillisToLocalDate(millis)
               viewModel.postponeToDate(taskId = target.id, targetDate = pickedDate)
             }
             taskPendingPostponeDate = null

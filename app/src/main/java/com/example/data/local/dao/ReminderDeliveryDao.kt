@@ -19,8 +19,35 @@ interface ReminderDeliveryDao {
   @Query("SELECT * FROM task_reminder_deliveries WHERE taskReminderId = :reminderId AND occurrenceKey = :occurrenceKey")
   suspend fun getTaskDelivery(reminderId: String, occurrenceKey: String): TaskReminderDeliveryEntity?
 
+  @Query(
+    """
+    SELECT EXISTS(
+      SELECT 1 FROM task_reminder_deliveries
+      WHERE taskReminderId = :reminderId
+        AND firedScheduleRevision = :scheduleRevision
+        AND state = 'POSTED_TO_SYSTEM'
+    )
+    """
+  )
+  suspend fun hasPostedTaskDeliveryForRevision(
+    reminderId: String,
+    scheduleRevision: Long,
+  ): Boolean
+
   @Insert(onConflict = OnConflictStrategy.ABORT)
   suspend fun insertTaskDelivery(delivery: TaskReminderDeliveryEntity)
+
+  @Insert(onConflict = OnConflictStrategy.IGNORE)
+  suspend fun insertTaskDeliveryIgnore(delivery: TaskReminderDeliveryEntity): Long
+
+  @Query(
+    """
+    SELECT * FROM task_reminder_deliveries
+    WHERE state IN ('PENDING', 'FAILED_RETRYABLE')
+    ORDER BY updatedAtEpochMs ASC
+    """
+  )
+  suspend fun getRecoverableTaskDeliveries(): List<TaskReminderDeliveryEntity>
 
   @Query(
     """
@@ -38,6 +65,46 @@ interface ReminderDeliveryDao {
     state: DeliveryState,
     attemptCount: Int,
     lastAttemptAtEpochMs: Long?,
+    lastError: String?,
+    updatedAtEpochMs: Long,
+  ): Int
+
+  @Query(
+    """
+    UPDATE task_reminder_deliveries
+    SET state = :state,
+        firedScheduleRevision = :firedScheduleRevision,
+        attemptCount = :attemptCount,
+        lastAttemptAtEpochMs = :lastAttemptAtEpochMs,
+        lastError = :lastError,
+        updatedAtEpochMs = :updatedAtEpochMs
+    WHERE id = :id
+    """
+  )
+  suspend fun updateTaskDeliveryAttempt(
+    id: String,
+    state: DeliveryState,
+    firedScheduleRevision: Long,
+    attemptCount: Int,
+    lastAttemptAtEpochMs: Long?,
+    lastError: String?,
+    updatedAtEpochMs: Long,
+  ): Int
+
+  @Query(
+    """
+    UPDATE task_reminder_deliveries
+    SET state = :newState,
+        lastError = :lastError,
+        updatedAtEpochMs = :updatedAtEpochMs
+    WHERE id = :id
+      AND state = :expectedState
+    """
+  )
+  suspend fun updateTaskDeliveryStateIfCurrent(
+    id: String,
+    expectedState: DeliveryState,
+    newState: DeliveryState,
     lastError: String?,
     updatedAtEpochMs: Long,
   ): Int

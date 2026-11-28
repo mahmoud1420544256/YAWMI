@@ -37,49 +37,51 @@ class RoomHabitRepository(
     id: String,
     isArchived: Boolean,
     updatedAtEpochMs: Long,
-  ): Int = database.withTransaction {
-    val updated = habitDao.setArchived(id, isArchived, updatedAtEpochMs)
-    if (updated > 0 && isArchived) {
-      val reminders = reminderDao.getHabitRemindersByHabitId(id)
-      for (reminder in reminders) {
-        deliveryDao.markPendingHabitDeliveriesStale(reminder.id, updatedAtEpochMs)
-        if (reminder.isEnabled) {
-          val nextRev = reminder.scheduleRevision + 1L
-          reminderDao.updateHabitReminder(
-            reminder.copy(
-              isEnabled = false,
-              scheduleRevision = nextRev,
-              updatedAtEpochMs = updatedAtEpochMs,
+  ): Int =
+    database.withTransaction {
+      val count = habitDao.setArchived(id, isArchived, updatedAtEpochMs)
+      if (count > 0 && isArchived) {
+        val reminders = reminderDao.getHabitRemindersByHabitId(id)
+        for (reminder in reminders) {
+          deliveryDao.markPendingHabitDeliveriesStale(reminder.id, updatedAtEpochMs)
+          if (reminder.isEnabled) {
+            val nextRev = reminder.scheduleRevision + 1L
+            reminderDao.updateHabitReminder(
+              reminder.copy(
+                isEnabled = false,
+                scheduleRevision = nextRev,
+                updatedAtEpochMs = updatedAtEpochMs,
+              )
             )
-          )
-          outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-            ownerType = ReminderOwnerType.HABIT,
-            reminderId = reminder.id,
-            requestCode = reminder.requestCode,
-            targetScheduleRevision = nextRev,
-            nowEpochMs = updatedAtEpochMs,
-          )
+            outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+              ownerType = ReminderOwnerType.HABIT,
+              reminderId = reminder.id,
+              requestCode = reminder.requestCode,
+              targetScheduleRevision = nextRev,
+              nowEpochMs = updatedAtEpochMs,
+            )
+          }
         }
       }
+      count
     }
-    updated
-  }
 
-  override suspend fun deleteHabitById(id: String): Int = database.withTransaction {
-    val now = System.currentTimeMillis()
-    val reminders = reminderDao.getHabitRemindersByHabitId(id)
-    for (reminder in reminders) {
-      deliveryDao.markPendingHabitDeliveriesStale(reminder.id, now)
-      outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-        ownerType = ReminderOwnerType.HABIT,
-        reminderId = reminder.id,
-        requestCode = reminder.requestCode,
-        targetScheduleRevision = reminder.scheduleRevision + 1L,
-        nowEpochMs = now,
-      )
+  override suspend fun deleteHabitById(id: String): Int =
+    database.withTransaction {
+      val now = System.currentTimeMillis()
+      val reminders = reminderDao.getHabitRemindersByHabitId(id)
+      for (reminder in reminders) {
+        deliveryDao.markPendingHabitDeliveriesStale(reminder.id, now)
+        outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+          ownerType = ReminderOwnerType.HABIT,
+          reminderId = reminder.id,
+          requestCode = reminder.requestCode,
+          targetScheduleRevision = reminder.scheduleRevision + 1L,
+          nowEpochMs = now,
+        )
+      }
+      habitDao.deleteHabitById(id)
     }
-    habitDao.deleteHabitById(id)
-  }
 
   override fun observeCompletionsForHabit(habitId: String): Flow<List<HabitCompletionEntity>> =
     habitDao.observeCompletionsForHabit(habitId)

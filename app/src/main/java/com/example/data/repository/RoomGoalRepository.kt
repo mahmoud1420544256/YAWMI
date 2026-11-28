@@ -36,49 +36,51 @@ class RoomGoalRepository(
     id: String,
     status: GoalStatus,
     updatedAtEpochMs: Long,
-  ): Int = database.withTransaction {
-    val updated = goalDao.updateStatus(id, status, updatedAtEpochMs)
-    if (updated > 0 && status != GoalStatus.ACTIVE) {
-      val reminders = reminderDao.getGoalRemindersByGoalId(id)
-      for (reminder in reminders) {
-        deliveryDao.markPendingGoalDeliveriesStale(reminder.id, updatedAtEpochMs)
-        if (reminder.isEnabled) {
-          val nextRev = reminder.scheduleRevision + 1L
-          reminderDao.updateGoalReminder(
-            reminder.copy(
-              isEnabled = false,
-              scheduleRevision = nextRev,
-              updatedAtEpochMs = updatedAtEpochMs,
+  ): Int =
+    database.withTransaction {
+      val count = goalDao.updateStatus(id, status, updatedAtEpochMs)
+      if (count > 0 && status != GoalStatus.ACTIVE) {
+        val reminders = reminderDao.getGoalRemindersByGoalId(id)
+        for (reminder in reminders) {
+          deliveryDao.markPendingGoalDeliveriesStale(reminder.id, updatedAtEpochMs)
+          if (reminder.isEnabled) {
+            val nextRev = reminder.scheduleRevision + 1L
+            reminderDao.updateGoalReminder(
+              reminder.copy(
+                isEnabled = false,
+                scheduleRevision = nextRev,
+                updatedAtEpochMs = updatedAtEpochMs,
+              )
             )
-          )
-          outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-            ownerType = ReminderOwnerType.GOAL,
-            reminderId = reminder.id,
-            requestCode = reminder.requestCode,
-            targetScheduleRevision = nextRev,
-            nowEpochMs = updatedAtEpochMs,
-          )
+            outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+              ownerType = ReminderOwnerType.GOAL,
+              reminderId = reminder.id,
+              requestCode = reminder.requestCode,
+              targetScheduleRevision = nextRev,
+              nowEpochMs = updatedAtEpochMs,
+            )
+          }
         }
       }
+      count
     }
-    updated
-  }
 
-  override suspend fun deleteGoalById(id: String): Int = database.withTransaction {
-    val now = System.currentTimeMillis()
-    val reminders = reminderDao.getGoalRemindersByGoalId(id)
-    for (reminder in reminders) {
-      deliveryDao.markPendingGoalDeliveriesStale(reminder.id, now)
-      outboxCoordinator.stageCancelAlarmAndNotificationLocked(
-        ownerType = ReminderOwnerType.GOAL,
-        reminderId = reminder.id,
-        requestCode = reminder.requestCode,
-        targetScheduleRevision = reminder.scheduleRevision + 1L,
-        nowEpochMs = now,
-      )
+  override suspend fun deleteGoalById(id: String): Int =
+    database.withTransaction {
+      val now = System.currentTimeMillis()
+      val reminders = reminderDao.getGoalRemindersByGoalId(id)
+      for (reminder in reminders) {
+        deliveryDao.markPendingGoalDeliveriesStale(reminder.id, now)
+        outboxCoordinator.stageCancelAlarmAndNotificationLocked(
+          ownerType = ReminderOwnerType.GOAL,
+          reminderId = reminder.id,
+          requestCode = reminder.requestCode,
+          targetScheduleRevision = reminder.scheduleRevision + 1L,
+          nowEpochMs = now,
+        )
+      }
+      goalDao.deleteGoalById(id)
     }
-    goalDao.deleteGoalById(id)
-  }
 
   override fun observeLinkedTasks(goalId: String): Flow<List<GoalTaskCrossRef>> =
     goalDao.observeLinkedTasks(goalId)

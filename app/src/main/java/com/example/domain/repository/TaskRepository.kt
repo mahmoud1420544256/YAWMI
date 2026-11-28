@@ -3,6 +3,9 @@ package com.example.domain.repository
 import com.example.data.local.entity.TaskEntity
 import com.example.data.local.entity.TaskRecurrenceEntity
 import com.example.data.local.entity.TaskStatus
+import com.example.domain.task.TaskCompletionResult
+import com.example.domain.task.TaskDomainResult
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 
 interface TaskRepository {
@@ -26,6 +29,12 @@ interface TaskRepository {
     updatedAtEpochMs: Long,
     completedAtEpochMs: Long?,
   ): Int
+
+  suspend fun completeTaskWithRecurrence(
+    taskId: String,
+    nowEpochMs: Long,
+    idGenerator: () -> String = { UUID.randomUUID().toString() },
+  ): TaskDomainResult<TaskCompletionResult>
 
   suspend fun deleteById(id: String): Int
 

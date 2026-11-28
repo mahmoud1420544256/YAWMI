@@ -43,6 +43,9 @@ interface GoalDao {
   @Query("SELECT * FROM goal_task_cross_refs WHERE goalId = :goalId")
   fun observeLinkedTasks(goalId: String): Flow<List<GoalTaskCrossRef>>
 
+  @Query("SELECT * FROM goal_task_cross_refs WHERE taskId = :taskId")
+  suspend fun getGoalLinksForTask(taskId: String): List<GoalTaskCrossRef>
+
   @Query("SELECT * FROM goal_habit_cross_refs WHERE goalId = :goalId")
   fun observeLinkedHabits(goalId: String): Flow<List<GoalHabitCrossRef>>
 

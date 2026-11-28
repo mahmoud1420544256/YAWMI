@@ -2,12 +2,32 @@ package com.example.domain.task
 
 import com.example.data.local.entity.TaskEntity
 import com.example.data.local.entity.TaskStatus
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.format.ResolverStyle
 import java.util.UUID
+
+data class TaskScheduleWindow(
+  val startDate: LocalDate?,
+  val startTime: LocalTime?,
+  val endDate: LocalDate?,
+  val endTime: LocalTime?,
+  val spansNextDay: Boolean,
+  val duration: Duration?,
+  val wallClockDuration: Duration?,
+  val startDstAdjustment: DstAdjustmentPolicy = DstAdjustmentPolicy.NONE,
+  val endDstAdjustment: DstAdjustmentPolicy = DstAdjustmentPolicy.NONE,
+) {
+  val hasDstShift: Boolean
+    get() =
+      startDstAdjustment != DstAdjustmentPolicy.NONE ||
+        endDstAdjustment != DstAdjustmentPolicy.NONE ||
+        (duration != null && wallClockDuration != null && duration != wallClockDuration)
+}
 
 object TaskRules {
   private val ISO_DATE_FORMATTER: DateTimeFormatter =
@@ -39,6 +59,7 @@ object TaskRules {
     val scheduledDate: String?,
     val startTime: String?,
     val endTime: String?,
+    val spansNextDay: Boolean,
     val categoryId: String?,
     val notes: String?,
   )
@@ -51,6 +72,7 @@ object TaskRules {
       errors += TaskValidationError.EmptyTitle
     }
 
+    val rawDatePresent = !input.scheduledDate.isNullOrBlank()
     val normalizedDate =
       input.scheduledDate?.trim()?.takeIf { it.isNotEmpty() }?.let { raw ->
         parseStrictIsoDate(raw)?.format(ISO_DATE_FORMATTER)
@@ -60,6 +82,7 @@ object TaskRules {
           }
       }
 
+    val rawStartPresent = !input.startTime.isNullOrBlank()
     val parsedStartTime =
       input.startTime?.trim()?.takeIf { it.isNotEmpty() }?.let { raw ->
         parseStrictTime(raw)
@@ -79,10 +102,31 @@ object TaskRules {
           }
       }
 
-    if (rawEndPresent && input.startTime.isNullOrBlank()) {
+    if (rawEndPresent && !rawStartPresent) {
       errors += TaskValidationError.EndTimeWithoutStartTime
-    } else if (parsedStartTime != null && parsedEndTime != null && parsedEndTime.isBefore(parsedStartTime)) {
-      errors += TaskValidationError.EndTimeBeforeStartTime
+    }
+
+    if (input.spansNextDay) {
+      if (!rawDatePresent) {
+        errors += TaskValidationError.NextDayRequiresScheduledDate
+      }
+      if (!rawStartPresent || !rawEndPresent) {
+        errors += TaskValidationError.NextDayRequiresTimeWindow
+      }
+    }
+
+    if (parsedStartTime != null && parsedEndTime != null) {
+      when {
+        parsedEndTime == parsedStartTime -> {
+          errors += TaskValidationError.EndTimeEqualsStartTime
+        }
+        !input.spansNextDay && parsedEndTime.isBefore(parsedStartTime) -> {
+          errors += TaskValidationError.EndTimeBeforeStartTime
+        }
+        input.spansNextDay && parsedEndTime.isAfter(parsedStartTime) -> {
+          errors += TaskValidationError.NextDayRequiresEndBeforeStart
+        }
+      }
     }
 
     return if (errors.isEmpty()) {
@@ -93,6 +137,7 @@ object TaskRules {
           scheduledDate = normalizedDate,
           startTime = parsedStartTime?.format(TIME_FORMATTER),
           endTime = parsedEndTime?.format(TIME_FORMATTER),
+          spansNextDay = input.spansNextDay,
           categoryId = input.categoryId?.trim()?.takeIf { it.isNotEmpty() },
           notes = input.notes?.trim()?.takeIf { it.isNotEmpty() },
         )
@@ -234,5 +279,155 @@ object TaskRules {
     } catch (_: DateTimeParseException) {
       null
     }
+  }
+
+  /**
+   * Under Schema v1, next-day spillover is uniquely encoded by `endTime < startTime`.
+   */
+  fun inferSpansNextDay(startTime: String?, endTime: String?): Boolean {
+    val start = startTime?.let { parseStrictTime(it) } ?: return false
+    val end = endTime?.let { parseStrictTime(it) } ?: return false
+    return inferSpansNextDay(start, end)
+  }
+
+  fun inferSpansNextDay(startTime: LocalTime, endTime: LocalTime): Boolean =
+    endTime.isBefore(startTime)
+
+  fun resolveEndDate(
+    startDate: LocalDate,
+    spansNextDay: Boolean,
+  ): LocalDate = if (spansNextDay) startDate.plusDays(1) else startDate
+
+  fun resolveEndDate(
+    startDate: LocalDate,
+    startTime: LocalTime?,
+    endTime: LocalTime?,
+    spansNextDayOverride: Boolean? = null,
+  ): LocalDate {
+    val spansNext =
+      spansNextDayOverride ?: (startTime != null && endTime != null && inferSpansNextDay(startTime, endTime))
+    return resolveEndDate(startDate = startDate, spansNextDay = spansNext)
+  }
+
+  fun resolveScheduleWindow(
+    task: TaskEntity,
+    zoneId: ZoneId,
+  ): TaskScheduleWindow =
+    resolveScheduleWindow(
+      scheduledDate = task.scheduledDate,
+      startTime = task.startTime,
+      endTime = task.endTime,
+      spansNextDayOverride = null,
+      zoneId = zoneId,
+    )
+
+  fun resolveScheduleWindow(
+    scheduledDate: String?,
+    startTime: String?,
+    endTime: String?,
+    spansNextDayOverride: Boolean?,
+    zoneId: ZoneId,
+  ): TaskScheduleWindow {
+    val parsedDate = scheduledDate?.let { parseStrictIsoDate(it) }
+    val parsedStart = startTime?.let { parseStrictTime(it) }
+    val parsedEnd = endTime?.let { parseStrictTime(it) }
+    return resolveScheduleWindow(
+      startDate = parsedDate,
+      startTime = parsedStart,
+      endTime = parsedEnd,
+      spansNextDayOverride = spansNextDayOverride,
+      zoneId = zoneId,
+    )
+  }
+
+  fun resolveScheduleWindow(
+    startDate: LocalDate?,
+    startTime: LocalTime?,
+    endTime: LocalTime?,
+    spansNextDayOverride: Boolean?,
+    zoneId: ZoneId,
+  ): TaskScheduleWindow {
+    val effectiveSpansNextDay =
+      when {
+        startTime != null && endTime != null ->
+          spansNextDayOverride ?: inferSpansNextDay(startTime, endTime)
+        spansNextDayOverride != null -> spansNextDayOverride
+        else -> false
+      }
+
+    val endDate =
+      if (startDate != null && startTime != null && endTime != null) {
+        resolveEndDate(startDate = startDate, spansNextDay = effectiveSpansNextDay)
+      } else {
+        startDate
+      }
+
+    if (startTime == null || endTime == null) {
+      return TaskScheduleWindow(
+        startDate = startDate,
+        startTime = startTime,
+        endDate = endDate,
+        endTime = endTime,
+        spansNextDay = effectiveSpansNextDay,
+        duration = null,
+        wallClockDuration = null,
+      )
+    }
+
+    if (startDate == null) {
+      val wallClock =
+        if (!effectiveSpansNextDay && endTime.isAfter(startTime)) {
+          Duration.between(startTime, endTime)
+        } else {
+          null
+        }
+      return TaskScheduleWindow(
+        startDate = null,
+        startTime = startTime,
+        endDate = null,
+        endTime = endTime,
+        spansNextDay = effectiveSpansNextDay,
+        duration = wallClock,
+        wallClockDuration = wallClock,
+      )
+    }
+
+    val startWall = java.time.LocalDateTime.of(startDate, startTime)
+    val endWall = java.time.LocalDateTime.of(requireNotNull(endDate), endTime)
+    val validCombination =
+      if (effectiveSpansNextDay) endTime.isBefore(startTime) else endTime.isAfter(startTime)
+
+    if (!validCombination) {
+      return TaskScheduleWindow(
+        startDate = startDate,
+        startTime = startTime,
+        endDate = endDate,
+        endTime = endTime,
+        spansNextDay = effectiveSpansNextDay,
+        duration = null,
+        wallClockDuration = null,
+      )
+    }
+
+    val wallDuration = Duration.between(startWall, endWall)
+    val startResolved = ReminderTriggerCalculator.resolveTrigger(startDate, startTime, zoneId)
+    val endResolved = ReminderTriggerCalculator.resolveTrigger(endDate, endTime, zoneId)
+    val zonedDuration =
+      Duration.between(
+        startResolved.zonedDateTime.toInstant(),
+        endResolved.zonedDateTime.toInstant(),
+      ).coerceAtLeast(Duration.ZERO)
+
+    return TaskScheduleWindow(
+      startDate = startDate,
+      startTime = startTime,
+      endDate = endDate,
+      endTime = endTime,
+      spansNextDay = effectiveSpansNextDay,
+      duration = zonedDuration,
+      wallClockDuration = wallDuration,
+      startDstAdjustment = startResolved.dstAdjustment,
+      endDstAdjustment = endResolved.dstAdjustment,
+    )
   }
 }

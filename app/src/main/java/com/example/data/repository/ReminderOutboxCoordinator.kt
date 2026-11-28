@@ -179,4 +179,50 @@ class ReminderOutboxCoordinator(
       newerSeq = cancelNotification.seq,
     )
   }
+
+  suspend fun stageCancelNotificationLocked(
+    ownerType: ReminderOwnerType,
+    reminderId: String,
+    requestCode: Int,
+    targetScheduleRevision: Long,
+    nowEpochMs: Long,
+  ) {
+    val identity =
+      PendingIntentIdentitySnapshot.forReminder(
+        ownerType = ownerType,
+        reminderId = reminderId,
+        requestCode = requestCode,
+        packageName = appPackageName,
+      )
+    val notifSeq = allocateNextOutboxSeqLocked()
+    val cancelNotification =
+      AlarmSyncOutboxEntity(
+        id = UUID.randomUUID().toString(),
+        seq = notifSeq,
+        reminderId = reminderId,
+        ownerType = ownerType,
+        requestCode = requestCode,
+        systemTarget = OutboxSystemTarget.NOTIFICATION_MANAGER,
+        action = OutboxAction.CANCEL_NOTIFICATION,
+        component = identity.component,
+        packageName = identity.packageName,
+        actionName = identity.actionName,
+        dataUri = identity.dataUri,
+        mimeType = identity.mimeType,
+        intentIdentifier = identity.intentIdentifier,
+        categoriesCanonical = identity.categoriesCanonical,
+        pendingIntentIdentityKey = identity.pendingIntentIdentityKey,
+        notificationTag = identity.notificationTag,
+        notificationId = identity.notificationId,
+        targetScheduleRevision = targetScheduleRevision,
+        status = OutboxStatus.PENDING,
+        createdAtEpochMs = nowEpochMs,
+      )
+    alarmSyncOutboxDao.insert(cancelNotification)
+    alarmSyncOutboxDao.supersedePendingNotificationByTagIdBeforeSeq(
+      notificationTag = identity.notificationTag,
+      notificationId = identity.notificationId,
+      newerSeq = cancelNotification.seq,
+    )
+  }
 }

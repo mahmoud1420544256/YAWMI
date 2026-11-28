@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/yawmi_icon_foreground_1795605840589"
+        android:drawable="@drawable/yawmi_official_icon_foreground"
         android:gravity="center" />
 </layer-list>

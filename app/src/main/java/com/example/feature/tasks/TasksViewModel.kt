@@ -1,5 +1,6 @@
 package com.example.feature.tasks
 
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,12 @@ import com.example.domain.task.TaskStatusFilter
 import com.example.domain.task.TaskUseCases
 import com.example.domain.task.TaskValidationError
 import java.time.LocalDate
+import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -29,6 +36,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class TaskListItemUi(
@@ -43,21 +51,35 @@ data class TasksUiState(
   val items: List<TaskListItemUi> = emptyList(),
   val categories: List<CategoryEntity> = emptyList(),
   val filter: TaskQueryFilter = TaskQueryFilter(),
-  val todayDate: LocalDate = LocalDate.now(),
+  val todayDate: LocalDate = LocalDate.MIN,
 )
 
 sealed interface TasksUiEvent {
   data class DomainFailure(val error: TaskValidationError) : TasksUiEvent
 }
 
+private data class TasksTimeContext(
+  val date: LocalDate,
+  val zoneId: ZoneId,
+)
+
 class TasksViewModel(
   taskRepository: TaskRepository,
   categoryUseCases: CategoryUseCases,
   private val taskUseCases: TaskUseCases,
   private val localClock: LocalClock,
+  private val midnightDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
 
   private val filterState = MutableStateFlow(TaskQueryFilter())
+  private val timeContext = MutableStateFlow(readTimeContext())
+  private var midnightJob: Job? = null
+
+  private val _activeMidnightTimerCount = AtomicInteger(0)
+  @VisibleForTesting
+  internal val activeMidnightTimerCount: Int
+    get() = _activeMidnightTimerCount.get()
+
   private val _events = MutableSharedFlow<TasksUiEvent>(extraBufferCapacity = 8)
   val events: SharedFlow<TasksUiEvent> = _events.asSharedFlow()
 
@@ -66,8 +88,9 @@ class TasksViewModel(
         taskRepository.observeAllTasks(),
         categoryUseCases.observeActiveCategories(),
         filterState,
-      ) { tasks, categories, filter ->
-        val today = localClock.currentDate()
+        timeContext,
+      ) { tasks, categories, filter, currentTime ->
+        val today = currentTime.date
         val categoriesById = categories.associateBy { it.id }
         val queriedTasks =
           TaskQueryRules.applyQuery(
@@ -95,8 +118,79 @@ class TasksViewModel(
       .stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000L),
-        initialValue = TasksUiState(isLoading = true, todayDate = localClock.currentDate()),
+        initialValue = TasksUiState(isLoading = true, todayDate = timeContext.value.date),
       )
+
+  init {
+    ensureMidnightTimerScheduled()
+  }
+
+  fun onForegroundStarted() {
+    ensureMidnightTimerScheduled()
+  }
+
+  fun onForegroundResumed() {
+    val latest = readTimeContext()
+    if (latest != timeContext.value) {
+      timeContext.value = latest
+      rescheduleMidnightTimer()
+    } else {
+      ensureMidnightTimerScheduled()
+    }
+  }
+
+  fun onForegroundStopped() {
+    cancelMidnightTimer()
+  }
+
+  fun onSystemTimeOrZoneChanged() {
+    val latest = readTimeContext()
+    if (latest != timeContext.value) {
+      timeContext.value = latest
+    }
+    rescheduleMidnightTimer()
+  }
+
+  private fun readTimeContext(): TasksTimeContext =
+    TasksTimeContext(
+      date = localClock.currentDate(),
+      zoneId = localClock.zoneId(),
+    )
+
+  private fun ensureMidnightTimerScheduled() {
+    if (midnightJob?.isActive == true) return
+    rescheduleMidnightTimer()
+  }
+
+  private fun rescheduleMidnightTimer() {
+    midnightJob?.cancel()
+    midnightJob =
+      viewModelScope.launch(midnightDispatcher) {
+        _activeMidnightTimerCount.incrementAndGet()
+        try {
+          while (isActive) {
+            val delayMs = localClock.millisUntilNextMidnight()
+            delay(delayMs)
+            val latest = readTimeContext()
+            if (latest != timeContext.value) {
+              timeContext.value = latest
+            }
+          }
+        } finally {
+          _activeMidnightTimerCount.decrementAndGet()
+        }
+      }
+  }
+
+  private fun cancelMidnightTimer() {
+    midnightJob?.cancel()
+    midnightJob = null
+  }
+
+  override fun onCleared() {
+    cancelMidnightTimer()
+    super.onCleared()
+  }
 
   fun onSearchQueryChange(query: String) {
     filterState.update { it.copy(searchQuery = query) }

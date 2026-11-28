@@ -65,12 +65,14 @@ import com.example.R
 import com.example.core.preferences.AppLanguage
 import com.example.core.time.GreetingPeriod
 import com.example.core.time.LocalClock
+import com.example.core.time.ObserveTodayTimeAndLifecycle
 import com.example.core.time.formatLocalizedHeader
 import com.example.data.local.entity.TaskEntity
 import com.example.data.local.entity.TaskStatus
 import com.example.domain.category.CategoryUseCases
 import com.example.domain.repository.TaskRepository
 import com.example.domain.task.TaskUseCases
+import com.example.domain.task.TaskReminderUseCases
 import com.example.domain.task.TodayDashboardMetrics
 import com.example.domain.task.TodayTaskItem
 import com.example.feature.tasks.components.CategoryManagerSheet
@@ -94,6 +96,7 @@ fun TodayScreen(
   onNavigateToTasks: () -> Unit,
   onShowSnackbar: (String) -> Unit = {},
   modifier: Modifier = Modifier,
+  taskReminderUseCases: TaskReminderUseCases? = null,
 ) {
   val viewModel: TodayViewModel =
     viewModel(
@@ -108,6 +111,13 @@ fun TodayScreen(
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
   val context = LocalContext.current
   val semantic = LocalYawmiSemanticColors.current
+
+  ObserveTodayTimeAndLifecycle(
+    onStarted = viewModel::onForegroundStarted,
+    onResumed = viewModel::onForegroundResumed,
+    onStopped = viewModel::onForegroundStopped,
+    onSystemTimeChanged = viewModel::onSystemTimeOrZoneChanged,
+  )
 
   LaunchedEffect(viewModel) {
     viewModel.events.collect { event ->
@@ -133,6 +143,8 @@ fun TodayScreen(
         onShowSnackbar(context.getString(R.string.today_msg_task_created))
       },
       onDismiss = { showEditor = false },
+      taskReminderUseCases = taskReminderUseCases,
+      onPartialSaveWarning = onShowSnackbar,
     )
   }
 

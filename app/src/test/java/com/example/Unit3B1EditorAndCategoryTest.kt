@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -16,6 +19,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.di.DefaultAppContainer
 import com.example.core.i18n.ProvideYawmiLocale
@@ -220,10 +224,36 @@ class Unit3B1EditorAndCategoryTest {
     composeTestRule.onNodeWithTag("task_title_error", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
     assertTrue(runBlocking { container.taskRepository.observeAllTasks().first().isEmpty() })
 
-    // Invalid end time earlier than start time
+    // Invalid end time earlier than start time via graphical TimePicker dialog
     composeTestRule.onNodeWithTag("task_title_input").performScrollTo().performTextInput("مراجعة المسودة")
-    composeTestRule.onNodeWithTag("task_start_time_input").performScrollTo().performTextInput("10:00")
-    composeTestRule.onNodeWithTag("task_end_time_input").performScrollTo().performTextInput("09:00")
+    composeTestRule.onNodeWithTag("task_start_time_btn").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("yawmi_time_picker_mode_toggle").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onAllNodes(
+      hasSetTextAction() and hasAnyAncestor(hasTestTag("yawmi_time_picker_input")),
+      useUnmergedTree = true,
+    ).let { fields ->
+      fields[0].performTextReplacement("10")
+      fields[1].performTextReplacement("00")
+    }
+    composeTestRule.onNodeWithTag("yawmi_time_picker_confirm_btn").performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("task_end_time_btn").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("yawmi_time_picker_mode_toggle").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onAllNodes(
+      hasSetTextAction() and hasAnyAncestor(hasTestTag("yawmi_time_picker_input")),
+      useUnmergedTree = true,
+    ).let { fields ->
+      fields[0].performTextReplacement("09")
+      fields[1].performTextReplacement("00")
+    }
+    composeTestRule.onNodeWithTag("yawmi_time_picker_confirm_btn").performClick()
+    composeTestRule.waitForIdle()
+
     composeTestRule.onNodeWithTag("task_save_btn").performScrollTo().performClick()
     composeTestRule.waitForIdle()
     composeTestRule.waitUntil(timeoutMillis = 5_000L) {
@@ -233,8 +263,8 @@ class Unit3B1EditorAndCategoryTest {
     assertTrue(runBlocking { container.taskRepository.observeAllTasks().first().isEmpty() })
 
     // Clear times and submit title only -> default MEDIUM, PENDING, null scheduledDate
-    composeTestRule.onNodeWithTag("task_start_time_input").performScrollTo().performTextClearance()
-    composeTestRule.onNodeWithTag("task_end_time_input").performScrollTo().performTextClearance()
+    composeTestRule.onNodeWithTag("task_clear_start_time_btn").performScrollTo().performClick()
+    composeTestRule.onNodeWithTag("task_clear_end_time_btn").performScrollTo().performClick()
     composeTestRule.onNodeWithTag("task_save_btn").performScrollTo().performClick()
     composeTestRule.waitUntil(timeoutMillis = 5_000L) { savedTask != null }
     composeTestRule.waitForIdle()
@@ -282,8 +312,35 @@ class Unit3B1EditorAndCategoryTest {
 
     composeTestRule.onNodeWithTag("task_title_input").performScrollTo().performTextInput("Read chapters 1-3")
     composeTestRule.onNodeWithTag("task_date_tomorrow").performScrollTo().performClick()
-    composeTestRule.onNodeWithTag("task_start_time_input").performScrollTo().performTextInput("09:30")
-    composeTestRule.onNodeWithTag("task_end_time_input").performScrollTo().performTextInput("10:45")
+
+    composeTestRule.onNodeWithTag("task_start_time_btn").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("yawmi_time_picker_mode_toggle").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onAllNodes(
+      hasSetTextAction() and hasAnyAncestor(hasTestTag("yawmi_time_picker_input")),
+      useUnmergedTree = true,
+    ).let { fields ->
+      fields[0].performTextReplacement("09")
+      fields[1].performTextReplacement("30")
+    }
+    composeTestRule.onNodeWithTag("yawmi_time_picker_confirm_btn").performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("task_end_time_btn").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("yawmi_time_picker_mode_toggle").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onAllNodes(
+      hasSetTextAction() and hasAnyAncestor(hasTestTag("yawmi_time_picker_input")),
+      useUnmergedTree = true,
+    ).let { fields ->
+      fields[0].performTextReplacement("10")
+      fields[1].performTextReplacement("45")
+    }
+    composeTestRule.onNodeWithTag("yawmi_time_picker_confirm_btn").performClick()
+    composeTestRule.waitForIdle()
+
     composeTestRule.onNodeWithTag("task_priority_high").performScrollTo().performClick()
     composeTestRule.onNodeWithTag("task_category_${category.id}").performScrollTo().performClick()
     composeTestRule.onNodeWithTag("task_save_btn").performScrollTo().performClick()
