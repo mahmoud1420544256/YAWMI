@@ -322,10 +322,12 @@ class TaskDetailViewModel(
     viewModelScope.launch {
       mutatingState.value = true
       try {
+        val previousTask = taskRepository.getById(taskId)
         val hadRecurrence = taskRepository.getTaskRecurrence(taskId) != null
         when (val result = taskUseCases.reopenTask(taskId)) {
           is TaskDomainResult.Success -> {
-            reopenedRecurringState.value = hadRecurrence
+            reopenedRecurringState.value =
+              previousTask?.status == TaskStatus.COMPLETED && hadRecurrence
             _events.tryEmit(TaskDetailUiEvent.ActionSucceeded(R.string.task_detail_msg_reopened))
           }
           is TaskDomainResult.Failure -> {
